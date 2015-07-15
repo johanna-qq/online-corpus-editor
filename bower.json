@@ -1,0 +1,23 @@
+{
+  "name": "online-corpus-editor",
+  "version": "0.0.0",
+  "authors": [
+    "ZechyW <ZechyW@users.noreply.github.com>"
+  ],
+  "description": "Online Corpus Editor",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "private": true,
+  "dependencies": {
+    "normalize.css": "~3.0.3",
+    "modernizr": "~2.8.3",
+    "material-design-lite": "~1.0.0",
+    "jquery": "~2.1.4",
+    "angular": "~1.4.2"
+  }
+}
