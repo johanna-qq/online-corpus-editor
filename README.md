@@ -31,4 +31,12 @@ Build the application:
 
 (Optionally, use `grunt build-imagemin` to use `grunt-contrib-imagemin` as well.)
 
-Serve the `dist` folder.
+Serve the `dist` folder using your favourite web server or `grunt serve:dist`
+
+### Development
+
+From the client directory, start the development server:
+
+    grunt serve
+
+Any changes made to the application files will be live-reloaded.

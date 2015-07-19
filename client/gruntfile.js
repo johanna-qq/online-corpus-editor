@@ -78,6 +78,9 @@ module.exports = function (grunt) {
                 'copy:styles',
                 'imagemin',
                 'svgmin'
+            ],
+            server: [
+                'copy:styles'
             ]
         },
 
@@ -109,6 +112,17 @@ module.exports = function (grunt) {
                 browsers: ['last 1 version']
             },
             dist: {
+                files: [{
+                    expand: true,
+                    cwd: '.tmp/styles/',
+                    src: '{,*/}*.css',
+                    dest: '.tmp/styles/'
+                }]
+            },
+            server: {
+                options: {
+                    map: true
+                },
                 files: [{
                     expand: true,
                     cwd: '.tmp/styles/',
@@ -231,6 +245,87 @@ module.exports = function (grunt) {
                     dest: '<%= appConfig.dist %>'
                 }]
             }
+        },
+
+        // The actual grunt server settings
+        connect: {
+            options: {
+                port: 9000,
+                // Change this to '0.0.0.0' to access the server from outside.
+                hostname: 'localhost',
+                livereload: 35729
+            },
+            livereload: {
+                options: {
+                    open: true,
+                    middleware: function (connect) {
+                        return [
+                            connect.static('.tmp'),
+                            connect().use(
+                                '/bower_components',
+                                connect.static('./bower_components')
+                            ),
+                            connect().use(
+                                '/app/styles',
+                                connect.static('./app/styles')
+                            ),
+                            connect.static(appConfig.app)
+                        ];
+                    }
+                }
+            },
+            dist: {
+                options: {
+                    open: true,
+                    base: '<%= appConfig.dist %>'
+                }
+            }
+        },
+
+        // Watches files for changes and runs tasks based on the changed files
+        watch: {
+            bower: {
+                files: ['bower.json'],
+                tasks: ['wiredep']
+            },
+            js: {
+                files: ['<%= appConfig.app %>/scripts/{,*/}*.js'],
+                tasks: ['newer:jshint:all'],
+                options: {
+                    livereload: '<%= connect.options.livereload %>'
+                }
+            },
+            styles: {
+                files: ['<%= appConfig.app %>/styles/{,*/}*.css'],
+                tasks: ['newer:copy:styles', 'autoprefixer']
+            },
+            gruntfile: {
+                files: ['Gruntfile.js']
+            },
+            livereload: {
+                options: {
+                    livereload: '<%= connect.options.livereload %>'
+                },
+                files: [
+                    '<%= appConfig.app %>/{,*/}*.html',
+                    '.tmp/styles/{,*/}*.css',
+                    '<%= appConfig.app %>/images/{,*/}*.{png,jpg,jpeg,gif,webp,svg}'
+                ]
+            }
+        },
+
+        // Make sure code styles are up to par and there are no obvious mistakes
+        jshint: {
+            options: {
+                jshintrc: '.jshintrc',
+                reporter: require('jshint-stylish')
+            },
+            all: {
+                src: [
+                    'Gruntfile.js',
+                    '<%= appConfig.app %>/scripts/{,*/}*.js'
+                ]
+            }
         }
     });
 
@@ -267,4 +362,23 @@ module.exports = function (grunt) {
         'usemin',
         'htmlmin'
     ]);
+
+    grunt.registerTask('default', [
+       'build'
+    ]);
+
+    grunt.registerTask('serve', 'Compile then start a connect web server', function (target) {
+        if (target === 'dist') {
+            return grunt.task.run(['build', 'connect:dist:keepalive']);
+        }
+
+        grunt.task.run([
+            'clean:server',
+            'wiredep',
+            'concurrent:server',
+            'autoprefixer:server',
+            'connect:livereload',
+            'watch'
+        ]);
+    });
 };
