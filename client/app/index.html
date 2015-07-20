@@ -23,10 +23,10 @@
   <!-- endbower -->
   <!-- endbuild -->
   <!-- build:css(.tmp) styles/main.css -->
-  <link rel="stylesheet" href="styles/main_demo.css">
+  <link rel="stylesheet" href="styles/main.css">
   <!-- endbuild -->
 </head>
-<body ng-controller="mainController">
+<body ng-controller="mainController as mainCtrl">
 <!--[if lt IE 8]>
 <p class="browserupgrade">You are using an <strong>outdated</strong> browser.
   Please <a href="http://browsehappy.com/">upgrade your browser</a> to improve
@@ -38,13 +38,49 @@
   <div class="mdl-cell mdl-cell--2-col"></div>
 
   <div class="mdl-cell mdl-cell--8-col">
-    <div class="angular-grid" ng-controller="gridController">
-      <div ag-grid="gridOptions" class="ag-fresh"></div>
-      <div>{{testdata}}</div>
+    <div ng-controller="gridController">
+      <div ag-grid="gridOptions" class="ag-fresh oce-grid"></div>
     </div>
   </div>
 
   <div class="mdl-cell mdl-cell--2-col"></div>
+
+  <div class="mdl-cell mdl-cell--12-col">
+    <button
+        class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
+        ng-click="wsHandler.getMeta()">
+      getMeta()
+    </button>
+    <button
+        class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
+        ng-click="wsHandler.getFirst()">
+      getFirst()
+    </button>
+  </div>
+
+  <div class="mdl-cell mdl-cell--6-col" ng-cloak>
+    <h4>Raw Input</h4>
+
+    <div>
+      <ul>
+        <li ng-repeat="data in wsHandler.rawInputQueue track by $index">
+          {{ data }}
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mdl-cell mdl-cell--6-col" ng-cloak>
+    <h4>Resolved Promises</h4>
+
+    <div>
+      <ul>
+        <li ng-repeat="data in wsHandler.resolvedQueue track by $index">
+          {{ data }}
+        </li>
+      </ul>
+    </div>
+  </div>
 </div>
 
 
@@ -60,7 +96,6 @@
 
 <!-- build:js(.) scripts/vendor.js -->
 <!-- bower:js -->
-<script src="bower_components/jquery/dist/jquery.js"></script>
 <script src="bower_components/modernizr/modernizr.js"></script>
 <script src="bower_components/material-design-lite/material.min.js"></script>
 <script src="bower_components/angular/angular.js"></script>
@@ -72,6 +107,8 @@
 
 <!-- build:js({.tmp,app}) scripts/scripts.js -->
 <script src="scripts/app.js"></script>
+<script src="scripts/config.js"></script>
+<script src="scripts/factories/websocket.js"></script>
 <script src="scripts/controllers/main.js"></script>
 <script src="scripts/controllers/grid.js"></script>
 <!-- endbuild -->
