@@ -13,7 +13,7 @@ PyEnchant (https://pythonhosted.org/pyenchant/)
  |- Also see: https://github.com/rfk/pyenchant/issues/45
 Numpy (http://www.numpy.org/)
 NLTK (http://www.nltk.org/)
- |- And the following NLTK package(s):
+ |- Also use the NLTK downloader to install the following NLTK package(s):
      |- punkt
 
 Recommended
