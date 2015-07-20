@@ -1,0 +1,3 @@
+# Data files should be provided by user
+*.txt
+*.db
