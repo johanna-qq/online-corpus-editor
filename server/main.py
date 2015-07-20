@@ -19,7 +19,7 @@ NLTK (http://www.nltk.org/)
 Recommended
 ===========
 Megam (http://www.umiacs.umd.edu/~hal/megam/)
- |- [Bundled] Binaries for Windows and OS X
+ |- [Bundled] Binaries for Windows, Linux and OS X
 
 NOTE: Bundled dependencies (in the 'lib' folder) will take precedence over
 versions elsewhere on the system.

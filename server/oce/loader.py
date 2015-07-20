@@ -29,7 +29,7 @@ def reload():
     properly pick up any changes to their components.
 
     Anything in the priority_list is reloaded immediately, in the given order;
-    the onus is on the user to ensure that the dependencies are properly
+    the onus is on the user to ensure that dependencies are properly
     satisfied.
     """
     priority_list = [
