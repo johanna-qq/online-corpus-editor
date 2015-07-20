@@ -10,24 +10,24 @@ Some of the dependencies are bundled; note that these will take precedence over 
 
 Put your corpus database and other data files in the `data` folder -- See the configuration sections of `main.py` and `oce/config.py` for more information.
 
-From the server directory, start `main.py`:
+From the server directory, run `start-server` (`start-server.bat` for Windows).
 
-    python3 main.py
+    $ ./start-server
 
 ## Usage (Client)
 
 Install `npm`, `bower` and `grunt-cli`.
 
-    npm install -g bower grunt-cli
+    $ npm install -g bower grunt-cli
 
 From the client directory, install the application dependencies:
 
-    npm install
-    bower install
+    $ npm install
+    $ bower install
 
 Build the application:
 
-    grunt build
+    $ grunt build
 
 (Optionally, use `grunt build-imagemin` to use `grunt-contrib-imagemin` as well.)
 
@@ -37,6 +37,6 @@ Serve the `dist` folder using your favourite web server or `grunt serve:dist`
 
 From the client directory, start the development server:
 
-    grunt serve
+    $ grunt serve
 
 Any changes made to the application files will be live-reloaded.

@@ -1,16 +1,14 @@
-#!/usr/bin/env python3
-# Python 3.4.3
-
 # Online Corpus Editor: Backend Server
-# Zechy Wong, 19 May 2015 - 9 July 2015
+# Zechy Wong, 19 May 2015 - 20 July 2015
 
 """
 Dependencies
 ============
+Python 3.4.3
 WebSockets (https://pypi.python.org/pypi/websockets)
 SQLAlchemy (https://pypi.python.org/pypi/SQLAlchemy/1.0.4)
 SQLite with FTS support (https://sqlite.org/fts3.html)
- |- [Bundled] Windows DLL with Enhanced Query Syntax
+ |- [Bundled] Windows DLL and Linux library with Enhanced Query Syntax
 PyEnchant (https://pythonhosted.org/pyenchant/)
  |- Also see: https://github.com/rfk/pyenchant/issues/45
 Numpy (http://www.numpy.org/)
