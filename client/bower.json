@@ -20,6 +20,7 @@
     "jquery": "~2.1.4",
     "angular": "~1.4.2",
     "angular-websocket": "~1.0.13",
-    "ag-grid": "~1.12.1"
+    "ag-grid": "~1.12.1",
+    "pako": "~0.2.7"
   }
 }
