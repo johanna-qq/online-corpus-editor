@@ -1,3 +1,6 @@
 # Data files should be provided by user
 *.txt
 *.db
+
+# Saved state (e.g., trained classifiers)
+*.pickle

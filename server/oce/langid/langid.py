@@ -98,6 +98,9 @@ class LangIDController:
                 elif sys.platform.startswith("win32"):
                     nltk.config_megam(os.path.join(".", "lib",
                                                    "megam.opt.win32.exe"))
+                elif sys.platform.startswith("linux"):
+                    nltk.config_megam(os.path.join(".", "lib",
+                                                   "megam.opt.linux"))
                 self.classifier = model_class.train(train_set, "megam")
             except LookupError as e:
                 self.classifier = model_class.train(train_set)
