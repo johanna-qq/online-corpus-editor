@@ -118,7 +118,9 @@ class LangIDController:
 
     def suggest_language(self, sentence):
         classifier = self.get_classifier()
-        return classifier.classify(self.extract_features(sentence))
+        featureset = self.extract_features(sentence)
+        classifier.explain(featureset)
+        return classifier.classify(featureset)
 
     def prepare_labelled_data(self, raw_data):
         """

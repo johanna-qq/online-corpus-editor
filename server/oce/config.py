@@ -2,7 +2,7 @@
 # Language Identification: Configuration
 
 # Console logger message level
-log_level = "info"
+log_level = "debug"
 
 # NLTK classifier model to use
 default_model = "maxent"
