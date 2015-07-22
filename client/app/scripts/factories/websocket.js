@@ -60,6 +60,21 @@
             // unsolicited).  Do something about it.
         });
 
+        function rejectPromises(reason) {
+            for (var i = 0; i < promiseQueue.length; i++) {
+                promiseQueue[i][1].reject(reason);
+            }
+            promiseQueue = [];
+        }
+
+        socket.onError(function () {
+            rejectPromises('WebSocket error.');
+        });
+
+        socket.onClose(function () {
+            rejectPromises('WebSocket closed.');
+        });
+
         function getMeta() {
             var deferred = $q.defer();
             promiseQueue.push(['meta', deferred]);

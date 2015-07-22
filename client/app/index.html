@@ -24,6 +24,7 @@
   <!-- endbuild -->
   <!-- build:css(.tmp) styles/main.css -->
   <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/grid.css">
   <!-- endbuild -->
 </head>
 <body ng-controller="mainController as mainCtrl">
@@ -34,27 +35,33 @@
 <![endif]-->
 
 <!-- Add your site or application content here -->
-<div class="mdl-grid">
-  <div class="mdl-cell mdl-cell--2-col"></div>
-
-  <div class="mdl-cell mdl-cell--8-col">
-    <div ng-controller="gridController">
-      <div ag-grid="gridOptions" class="ag-fresh oce-grid"></div>
-    </div>
+<div class="mdl-grid" ng-controller="gridController as gridCtrl"
+     style="margin: 20px;">
+  <div class="mdl-cell mdl-cell--12-col">
+      <div ag-grid="gridCtrl.gridOptions" class="oce-grid"></div>
   </div>
-
-  <div class="mdl-cell mdl-cell--2-col"></div>
 
   <div class="mdl-cell mdl-cell--12-col">
     <button
         class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
-        ng-click="wsHandler.getMeta()">
+        ng-click="mainCtrl.wsHandler.getMeta()">
       getMeta()
     </button>
     <button
         class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
-        ng-click="wsHandler.getFirst()">
+        ng-click="mainCtrl.wsHandler.getFirst()">
       getFirst()
+    </button>
+    <button
+        class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
+        ng-click="gridCtrl.gridOptions.api.ensureIndexVisible(40000)">
+      ensureIndexVisible()
+    </button>
+
+    <button
+        class="mdl-button mdl-js-button mdl-button--raised mdl-js-ripple-effect oce-buttons"
+        ng-click="gridCtrl.gridOptions.api.sizeColumnsToFit()">
+      sizeToFit()
     </button>
   </div>
 

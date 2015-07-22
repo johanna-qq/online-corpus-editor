@@ -1,0 +1,273 @@
+/**
+ * Online Corpus Editor: Grid Styling
+ */
+
+/** Centring **/
+.oce-grid .oce-grid-content--centre-horizontal {
+    text-align: center;
+}
+
+.oce-grid .oce-grid-content--centre-vertical-parent,
+.oce-grid .oce-grid-content--centre-vertical-parent:after {
+    height: 100%;
+}
+
+.oce-grid .oce-grid-content--centre-vertical-parent:after {
+    content: '';
+}
+
+.oce-grid .oce-grid-content--centre-vertical-parent:after,
+.oce-grid .oce-grid-content--centre-vertical-child {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.oce-grid .oce-grid-content--centre-vertical-child {
+    width: 100%;
+}
+
+/** Grid styles **/
+.oce-grid .ag-root {
+    border: 1px solid #E4E4E4;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.oce-grid .ag-cell {
+    padding: 5px;
+    /*white-space: normal;*/
+    font-size: 0.875rem;
+    line-height: 1.125rem;
+    /*overflow: auto;*/
+}
+
+.oce-grid .ag-cell-focus {
+    border: 1px solid #a9a9a9;
+}
+
+.oce-grid .ag-cell-no-focus {
+    border-right: 1px dotted #808080;
+    border-top: 1px solid transparent;
+    border-left: 1px solid transparent;
+    border-bottom: 1px solid transparent;
+}
+
+.oce-grid .ag-pinned-header {
+    background: -webkit-linear-gradient(#fff, #d3d3d3);
+    background: -moz-linear-gradient(#fff, #d3d3d3);
+    background: -o-linear-gradient(#fff, #d3d3d3);
+    background: -ms-linear-gradient(#fff, #d3d3d3);
+    background: linear-gradient(#fff, #d3d3d3);
+    border-bottom: 1px solid #808080;
+}
+
+.oce-grid .ag-header-container {
+    background: -webkit-linear-gradient(#fff, #d3d3d3);
+    background: -moz-linear-gradient(#fff, #d3d3d3);
+    background: -o-linear-gradient(#fff, #d3d3d3);
+    background: -ms-linear-gradient(#fff, #d3d3d3);
+    background: linear-gradient(#fff, #d3d3d3);
+    border-bottom: 1px solid #808080;
+}
+
+.oce-grid .ag-header-cell {
+    border-right: 1px solid #808080;
+}
+
+.oce-grid .ag-header-group-cell {
+    border-right: 1px solid #808080;
+}
+
+.oce-grid .ag-header-group-cell-with-group {
+    border-bottom: 1px solid #808080;
+}
+
+.oce-grid .ag-header-cell-label {
+    padding: 4px 2px 4px 2px;
+}
+
+.oce-grid .ag-header-cell-text {
+    padding-left: 2px;
+}
+
+.oce-grid .ag-header-group-cell-label {
+    padding: 4px;
+    font-weight: bold;
+}
+
+.oce-grid .ag-header-group-text {
+    margin-right: 2px;
+}
+
+.oce-grid .ag-header-cell-menu-button {
+    padding: 2px;
+    margin-top: 4px;
+    border: 1px solid transparent;
+    -webkit-border-radius: 3px;
+    border-radius: 3px;
+    -webkit-box-sizing: content-box;
+    -moz-box-sizing: content-box;
+    box-sizing: content-box; /* When using bootstrap, box-sizing was set to 'border-box' */
+}
+
+.oce-grid .ag-header-cell-menu-button:hover {
+    border: 1px solid #000;
+}
+
+.oce-grid .ag-header-icon {
+    color: #800000;
+}
+
+.oce-grid .ag-dark .ag-header-expand-icon:hover {
+    cursor: pointer;
+}
+
+.oce-grid .ag-row-odd {
+    background-color: #f6f6f6;
+}
+
+.oce-grid .ag-row-even {
+    background-color: #fff;
+}
+
+.oce-grid .ag-loading-panel {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.oce-grid .ag-loading-center {
+    background-color: #fff;
+    border: 1px solid #a9a9a9;
+    -webkit-border-radius: 10px;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.oce-grid .ag-body {
+    background-color: #fafafa;
+}
+
+.oce-grid .ag-row-selected {
+    background-color: #b0e0e6;
+}
+
+.oce-grid .ag-group-cell-entire-row {
+    background-color: #aaa;
+    padding: 4px;
+}
+
+.oce-grid .ag-footer-cell-entire-row {
+    background-color: #aaa;
+    padding: 4px;
+}
+
+.oce-grid .ag-group-cell {
+    font-style: italic;
+}
+
+.oce-grid .ag-group-expand {
+    padding-right: 2px;
+}
+
+.oce-grid .ag-footer-cell {
+    font-style: italic;
+}
+
+.oce-grid .ag-filter-checkbox {
+    position: relative;
+    top: 2px;
+    left: 2px;
+}
+
+.oce-grid .ag-filter-header-container {
+    border-bottom: 1px solid #d3d3d3;
+}
+
+.oce-grid .ag-filter-apply-panel {
+    border-top: 1px solid #d3d3d3;
+    padding: 2px;
+}
+
+.oce-grid .ag-filter {
+    border: 1px solid #000;
+    background-color: #f0f0f0;
+}
+
+.oce-grid .ag-filter-value {
+    margin-left: 4px;
+}
+
+.oce-grid .ag-selection-checkbox {
+    margin-left: 4px;
+}
+
+.oce-grid .ag-paging-panel {
+    padding: 4px;
+}
+
+.oce-grid .ag-paging-button {
+    margin-left: 4px;
+    margin-right: 4px;
+}
+
+.oce-grid .ag-paging-row-summary-panel {
+    display: inline-block;
+    width: 300px;
+}
+
+.oce-grid .ag-column-not-visible {
+    opacity: 0.75;
+    -ms-filter: "progid:DXImageTransform.Microsoft.Alpha(Opacity=75)";
+    filter: alpha(opacity=75);
+}
+
+.oce-grid .ag-not-dragging {
+    border: 1px solid transparent;
+}
+
+.oce-grid .ag-drop-target-above {
+    border-top: 5px solid #a9a9a9;
+}
+
+.oce-grid .ag-drop-target-below {
+    border-bottom: 5px solid #a9a9a9;
+}
+
+.oce-grid .ag-dragging {
+    border: 1px dotted #a9a9a9;
+}
+
+.oce-grid .ag-list-item-selected {
+    color: #f0f0f0;
+}
+
+.oce-grid .ag-list-item-not-selected {
+    font-style: italic;
+    color: #a0a0a0;
+}
+
+.oce-grid .ag-tool-panel-container {
+    background-color: #eee;
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    border: 1px solid #a9a9a9;
+    padding: 4px;
+}
+
+.oce-grid .ag-list-selection {
+    background-color: #fff;
+    border: 1px solid #a9a9a9;
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+
+.oce-grid .ag-popup-list .ag-list-item:hover {
+    background-color: #add8e6;
+}
+
+.oce-grid .ag-visible-icons {
+    padding-left: 2px;
+    padding-right: 2px;
+}
