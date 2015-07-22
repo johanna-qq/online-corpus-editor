@@ -6,15 +6,13 @@
 (function () {
     "use strict";
 
-    angular.module("oce").factory('wsHandler', function (appConfig, $websocket, $window, $q) {
+    angular.module("oce").factory('$ocewebsocket', function (appConfig, pako, $websocket, $q) {
 
         /**
          * Handle zlib compression + base64 decoding
          * http://stackoverflow.com/questions/4507316/zlib-decompression-client-side
          */
         function b64Inflate(b64Input) {
-            //var test = 'eJxNT01PwzAM/StVzhwAwQ67TXRik4BVqwQHxMFNrC4sjSvHmaim/XeSlrGdbD/7ffioNHUdeKPmhepQQN0UykCq8+KohARc6u4fbmePs7u0EmhDAj7VE/XRQYkOxZLPrIqpZOpzu+A2duilFo5aImMGJ8Y78pCnZdegMWjqxXpkmG/UYg82wFnvbbnNJREacFf4KzgYJZ5JKgoBQ7AHPANwPS1/bJCUw6YvLgk3Tfb6P+mR7eVm43GLLplNIqshrTUx53R//sT9jhy1Q/GS7DNU2qApcsAKWKx2I/Vjt/a1lTjK0H6fTKb43gBbr75Op1/NZX1W';
-            var pako = $window.pako;
             var strData = atob(b64Input);
             var charData = strData.split('').map(function (x) {
                 return x.charCodeAt(0);
@@ -28,9 +26,9 @@
         var socket = $websocket("ws://" + appConfig.wsHost + ":" + appConfig.wsPort);
         var promiseQueue = [];
 
-        // DEBUG
+        // DEBUG: Raw message logs
         var rawInputQueue = [];
-        var resolvedQueue = [];
+        var rawResolvedQueue = [];
 
         socket.onMessage(function (message) {
             var incomingData = JSON.parse(b64Inflate(message.data));
@@ -49,14 +47,11 @@
                 }
             }
             if (promise !== null) {
-                setTimeout(function () {
-                    var result = JSON.stringify(incomingData, null, 2);
-                    resolvedQueue.push(result);
-                    promise.resolve(incomingData);
-                }, 1);
+                rawResolvedQueue.push(JSON.stringify(incomingData, null, 2));
+                promise.resolve(incomingData);
             }
 
-            // Else: There was no associated promise (i.e., the message was
+            // TODO: Else -- There was no associated promise (i.e., the message was
             // unsolicited).  Do something about it.
         });
 
@@ -75,30 +70,19 @@
             rejectPromises('WebSocket closed.');
         });
 
-        function getMeta() {
+        // 'requestOb' should at least have its command specified.
+        function request(requestObj) {
             var deferred = $q.defer();
-            promiseQueue.push(['meta', deferred]);
-            socket.send(JSON.stringify({command: 'meta'}));
-            return deferred.promise;
-        }
-
-        function getFirst() {
-            var deferred = $q.defer();
-            promiseQueue.push(['view', deferred]);
-            socket.send(JSON.stringify({
-                command: 'view',
-                start: 1,
-                end: 100,
-                record: 1
-            }));
+            var command = requestObj.command;
+            promiseQueue.push([command, deferred]);
+            socket.send(JSON.stringify(requestObj));
             return deferred.promise;
         }
 
         var methods = {
             rawInputQueue: rawInputQueue,
-            resolvedQueue: resolvedQueue,
-            getMeta: getMeta,
-            getFirst: getFirst
+            rawResolvedQueue: rawResolvedQueue,
+            request: request
         };
 
         return methods;
