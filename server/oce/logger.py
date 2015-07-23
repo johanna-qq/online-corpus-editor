@@ -43,3 +43,7 @@ root_logger.addHandler(console_handler)
 
 # SQLAlchemy prints a lot of messages at the INFO level.
 logging.getLogger('sqlalchemy').setLevel(logging.WARN)
+
+# Websockets also prints a lot of messages (including the contents of every frame)
+# at the DEBUG level.
+logging.getLogger('websockets.protocol').setLevel(logging.INFO)

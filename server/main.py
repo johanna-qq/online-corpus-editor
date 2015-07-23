@@ -20,6 +20,9 @@ Recommended
 ===========
 Megam (http://www.umiacs.umd.edu/~hal/megam/)
  |- [Bundled] Binaries for Windows, Linux and OS X
+Hunspell Dictionaries
+ |- [Bundled] Dictionaries for en_GB and en_US (http://wordlist.aspell.net/dicts/)
+ |- [Bundled] Dictionary for ms_MY (From the LyX sources: http://www.lyx.org/)
 
 NOTE: Bundled dependencies (in the 'lib' folder) will take precedence over
 versions elsewhere on the system.

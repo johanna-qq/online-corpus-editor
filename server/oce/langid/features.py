@@ -2,6 +2,7 @@
 # Language Identification: Features
 
 import re
+import string
 
 import enchant
 import nltk
@@ -16,11 +17,7 @@ from oce.config import valid_pinyin
 
 # === Spellcheckers ===
 enchant.set_param("enchant.myspell.dictionary.path","./lib/dict")
-en_US = enchant.Dict("en_US")
-en_GB = enchant.Dict("en_GB")
-ms_MY = enchant.Dict("ms_MY")
-
-dictionary_list = ["en_US", "en_GB", "ms_MY"]
+dictionary_list = ["en_US-large", "en_GB-large", "ms_MY"]
 dictionaries = {}
 for language in dictionary_list:
     dictionaries[language] = enchant.Dict(language)
@@ -30,21 +27,27 @@ sge_lists = [enchant.request_pwl_dict(pwl) for pwl in sge_words]
 
 def extract_features(sentence):
     tokenised = tokenise(sentence)
+    tokenised_spellcheck = prep_tokens_for_spellcheck(tokenised)
     features = {}
     ## Primary features
     # Chinese
     features["has_zh_chars"] = has_zh_chars(sentence)
     features["has_pinyin"] = has_pinyin(tokenised)
-    # English
-    features["has_en_US"] = has_en_US(tokenised)
-    features["portion_en_US_1"] = portion_en_US(tokenised, 1)
-    features["has_en_GB"] = has_en_GB(tokenised)
-    features["portion_en_GB_1"] = portion_en_GB(tokenised, 1)
     # Singlish
     features["has_sge_words"] = has_sge_words(tokenised)
+    features["has_z_ending_word"] = has_z_ending_word(tokenised)
+    # English
+    features["has_en_US"] = has_language(tokenised_spellcheck, "en_US-large")
+    features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1, "en_US-large")
+    features["has_en_GB"] = has_language(tokenised_spellcheck, "en_GB-large")
+    features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1, "en_GB-large")
     # Malay
-    features["has_ms_MY"] = has_ms_MY(tokenised)
-    features["portion_ms_1"] = portion_ms_MY(tokenised, 1)
+    features["has_ms_MY"] = has_language(tokenised_spellcheck, "ms_MY")
+    features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1, "ms_MY")
+
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "en_US-large")
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "en_GB-large")
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "ms_MY")
 
     ## Secondary features
     # Chinese
@@ -56,7 +59,8 @@ def extract_features(sentence):
                                   features["has_en_GB"])
     features["no_en"] = not features["has_en"]
     # Singlish
-    features["has_sge"] = (features["has_sge_words"])
+    features["has_sge"] = (features["has_sge_words"] or
+                            features["has_z_ending_word"])
     features["no_sge"] = not features["has_sge"]
     # Malay
     features["has_ms"] = (features["has_ms_MY"])
@@ -78,7 +82,7 @@ def extract_features(sentence):
                                  features["has_ms"])
     return features
 
-
+# === Generic Functions ===
 def tokenise(sentence):
     """
     Returns a tokenised version of the sentence
@@ -89,13 +93,80 @@ def tokenise(sentence):
     # TODO: Try the pyenchant tokeniser
     tokenised = nltk.tokenize.word_tokenize(sentence)
 
-    # Pre-processing
+    # General pre-processing
+    for index, token in enumerate(tokenised):
+        # Remove punctuation, then whitespace
+        #tokenised[index] = token.strip('.,@\'"*?!').strip()
+        tokenised[index] = token.strip("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip()
 
-    # Done
+    # Drop empty tokens and return
+    return [token for token in tokenised if token != '']
+
+def prep_tokens_for_spellcheck(tokenised):
+    # Specific pre-processing steps needed for spellcheckers
+    
+    # Drop non-printable characters
+    for index, token in enumerate(tokenised):
+        tokenised[index] = ''.join([char for char in token if char in string.printable])
+
+    # Words to ignore, including the empty string
+    blacklist = set([""])
+    # Twitter jargon (should always be in uppercase?)
+    blacklist.add("USERNAME")
+    blacklist.add("RT")
+
+    tokenised = [token for token in tokenised if token not in blacklist]
     return tokenised
 
+def word_in_dictionary(word, dictionary_name):
+    print("word_in_dictionary: " + word)
+    return dictionaries[dictionary_name].check(word)
 
+def has_language(tokenised, language):
+    for token in tokenised:
+        if word_in_dictionary(token, language):
+            return True
+    return False
 
+def portion_language(tokenised, precision, language):
+    """
+    Find the fraction of the tokens that were found in the specified
+    dictionary.
+    Returns a float between 0 and 1 rounded to the precision specified.
+    :param tokenised:
+    :param precision: The number of decimal places to round to
+    :param language:
+    :return:
+    """
+    yes = 0
+    no = 0
+    for token in tokenised:
+        if word_in_dictionary(token, language):
+            yes += 1
+        else:
+            no += 1
+    rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
+    return float(rounded)
+
+def add_binary_portion_language(featureset, tokenised, precision, language):
+    # Calculate all the binary features we want:
+    #   - For each precision step i, we want <at least i>, <less than i>
+
+    # Step 0: Get the actual portion
+    portion = portion_language(tokenised, precision, language)
+
+    # Step 1: Find all the precision steps
+    steplist = [n/(10**precision) for n in range(1, 10**precision+1)]
+    for step in steplist:
+        if portion < step:
+            featureset[language + "_at_least_" + str(step)] = False
+            featureset[language + "_less_than_" + str(step)] = True
+        else:
+            featureset[language + "_at_least_" + str(step)] = True
+            featureset[language + "_less_than_" + str(step)] = False
+    return featureset
+
+# === Chinese ===
 def has_zh_chars(str):
     for c in str:
         cjk = ord(u'\u4e00') <= ord(c) <= ord(u'\u9fff')
@@ -183,6 +254,7 @@ def check_pinyin(word):
 
     # Step 4: Check it against our other dictionaries; better safe than sorry?
     for language in dictionaries.keys():
+        print("pinyin_check: " + word)
         if dictionaries[language].check(word):
             # TODO: dictionary name
             logger.debug("Found '" + word + "' in dictionary: " + language)
@@ -198,89 +270,19 @@ def has_pinyin(tokenised):
     return False
 
 
-def has_en_US(tokenised):
-    for token in tokenised:
-        if en_US.check(token):
-            return True
-    return False
-
-
-def portion_en_US(tokenised, precision):
-    """
-    Find the fraction of the tokens that were found in the en_US
-    dictionary.
-    Returns a float between 0 and 1 rounded to the precision specified.
-    :param tokenised:
-    :param precision: The number of decimal places to round to
-    :return:
-    """
-    yes = 0
-    no = 0
-    for token in tokenised:
-        if en_US.check(token):
-            yes += 1
-        else:
-            no += 1
-    rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
-    return float(rounded)
-
-
-def has_en_GB(tokenised):
-    for token in tokenised:
-        if en_GB.check(token):
-            return True
-    return False
-
-
-def portion_en_GB(tokenised, precision):
-    """
-    Find the fraction of the tokens that were found in the en_GB
-    dictionary.
-    Returns a float between 0 and 1 rounded to the precision specified.
-    :param tokenised:
-    :param precision: The number of decimal places to round to
-    :return:
-    """
-    yes = 0
-    no = 0
-    for token in tokenised:
-        if en_GB.check(token):
-            yes += 1
-        else:
-            no += 1
-    rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
-    return float(rounded)
-
-
+# === Singlish ===
 def has_sge_words(tokenised):
+    print(tokenised)
     for token in tokenised:
-        for list in sge_lists:
-            if list.check(token):
+        print(token)
+        for sge_list in sge_lists:
+            print("sge_words: " + token)
+            if sge_list.check(token):
                 return True
     return False
 
-def has_ms_MY(tokenised):
+def has_z_ending_word(tokenised):
     for token in tokenised:
-        if ms_MY.check(token):
+        if token.endswith('z'):
             return True
     return False
-
-
-def portion_ms_MY(tokenised, precision):
-    """
-    Find the fraction of the tokens that were found in the ms_MY
-    dictionary.
-    Returns a float between 0 and 1 rounded to the precision specified.
-    :param tokenised:
-    :param precision: The number of decimal places to round to
-    :return:
-    """
-    yes = 0
-    no = 0
-    for token in tokenised:
-        if ms_MY.check(token):
-            yes += 1
-        else:
-            no += 1
-    rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
-    return float(rounded)

@@ -143,7 +143,7 @@ class LangIDController:
         :return:
         """
         classifier = self.get_classifier()
-        classifier.show_most_informative_features()
+        classifier.show_most_informative_features(20)
         print(nltk.tokenize.word_tokenize(str))
 
     def shutdown(self):

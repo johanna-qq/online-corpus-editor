@@ -376,8 +376,8 @@ def process_query(query):
             return_query = return_query + 'has:language '
             found_positive = True
         elif word.startswith("lang:"):
-            query = query + "language:" + word.split("lang:", 1)[1]
-            return_query = return_query + "language:" + word.split("lang:", 1)[1]
+            query = query + "language:" + word.split("lang:", 1)[1] + " "
+            return_query = return_query + "language:" + word.split("lang:", 1)[1] + " "
             found_positive = True
         elif word == '&':
             # Not needed, and FTS does not search for literal &s anyway
