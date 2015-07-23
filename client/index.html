@@ -1,0 +1,181 @@
+<!doctype html>
+<html class="no-js" lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Online Corpus Editor</title>
+
+    <link rel="stylesheet" href="css/foundation.css" type="text/css">
+    <link href="css/jMinEmoji-SVG.css" rel="stylesheet">
+    <link href="css/jquery.tagit.css" rel="stylesheet" type="text/css">
+    <link href="css/tagit.ui-zendesk.css" rel="stylesheet" type="text/css">
+    <link href="css/oce-0.2.3.css" rel="stylesheet" type="text/css">
+    <link href="css/fonts.css" rel="stylesheet" type="text/css">
+
+    <script src="js/modernizr.js"></script>
+</head>
+<body>
+
+<!-- Top bar: Container starts hidden, but will be animated in when ready -->
+<div class="fixed contain-to-grid hide transparent">
+    <nav id="top-nav" class="top-bar" data-topbar role="navigation">
+        <ul class="title-area">
+            <li class="name"><h1><a href='#'>Home</a></h1></li>
+            <li class="toggle-topbar menu-icon"><a
+                    href="#"><span>Menu</span></a></li>
+        </ul>
+
+        <section class="top-bar-section">
+            <ul class="left">
+                <li>
+                    <a id='btntop_prev'>Prev Page</a>
+                </li>
+                <li>
+                    <a id='btntop_next'>Next Page</a>
+                </li>
+                <li class="has-form">
+                    <form id="frm-jump-page">
+                        <div class="row collapse">
+                            <div class="small-8 small-centered columns">
+                                <div class="row collapse">
+                                    <div class="small-8 columns">
+                                        <input type="text" id="txt-jump-page"
+                                               placeholder="Page No.">
+                                    </div>
+                                    <div class="small-4 columns end">
+                                        <a class="button expand"
+                                           id="btn-jump-page">Go</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </li>
+                <li class="has-form">
+                    <form id="frm-jump-record">
+                        <div class="row collapse">
+                            <div class="small-8 small-centered columns">
+                                <div class="row collapse">
+                                    <div class="small-8 columns">
+                                        <input type="text" id="txt-jump-record"
+                                               placeholder="Record ID...">
+                                    </div>
+                                    <div class="small-4 columns end">
+                                        <a class="button expand"
+                                           id="btn-jump-record">Go</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </li>
+            </ul>
+
+            <ul class="right">
+                <li>
+                    <a id='btn-search-help' data-dropdown="search-help">Search
+                        Help</a>
+
+                    <div id="search-help" data-dropdown-content
+                         class="f-dropdown content small" aria-hidden="true">
+                        <p>Use <strong>has:comment</strong>,
+                            <strong>has:tag</strong>,
+                            <strong>is:flagged</strong> and
+                            <strong>has:language</strong> to
+                            filter generally on those fields.</p>
+
+                        <p>Use <strong>category:</strong><i>&lt;n&gt;</i>,
+                            <strong>comment:</strong><i>&lt;word&gt;</i>,
+                            <strong>tag:</strong><i>&lt;tag&gt;</i> and
+                            <strong>language:</strong><i>&lt;language&gt;</i> to
+                            search for specific words within those
+                            fields.</p>
+
+                        <p>By default, the query will include all the search
+                            terms provided - There is no need to explicitly
+                            insert '&' or 'and' between terms. To <em>exclude
+                            </em> search terms, use the <strong>-</strong>
+                            prefix; it goes <em>after</em> the colon for
+                            filters.</p>
+
+                        <p>The uppercase <strong>OR</strong> operator can be
+                            used to combine word, phrase, or filter
+                            queries; brackets are not supported.</p>
+                        <!-- <p>By default, Porter stemming is done on queries and results; use <i>stemming:off</i> to return only exact matches.</p> -->
+                        <p>For example, searching <i>millefuille OR "delicious
+                            burger" OR christmascakes
+                            comment:-tasty</i> will return records that contain
+                            any of the first three terms but do not
+                            have the word <i>tasty</i> in their comments.</p>
+                    </div>
+                </li>
+                <li class="has-form">
+                    <form id="frm-search">
+                        <div class="row collapse">
+                            <div class="large-8 small-9 columns">
+                                <input type="text" id="txt-search"
+                                       placeholder="Search...">
+                            </div>
+                            <div class="large-4 small-3 columns">
+                                <a id="btn-search"
+                                   class="button expand">Search</a>
+                            </div>
+                        </div>
+                    </form>
+                </li>
+            </ul>
+        </section>
+    </nav>
+</div>
+<!-- End Top bar -->
+
+<!-- Main container -->
+<div id="main-container" class="row shadow">
+    <div class="small-12 small-centered columns">
+        <div id="data-container">
+            <!-- Dynamic content will go here -->
+        </div>
+    </div>
+</div>
+<!-- End Main container -->
+
+<!-- Footer bar -->
+<div class="fixed-bottom pagination-centered shadow">
+    <nav class="footer-bar hide" id="pager">
+        <!-- Dynamic paginator will go here -->
+    </nav>
+</div>
+<!-- End Footer bar -->
+
+<!-- Load system components -->
+<script>
+    // Bootstrap current build version
+    var require = {
+        baseUrl: 'js/v0.2.3/lib',
+        waitSeconds: 60
+    };
+</script>
+<script src="js/require.js"></script>
+<script>
+    // Prepare basic error handling in case even the main script doesn't manage
+    // to load properly :(
+    // Usually caused by a slow internet connection.
+    requirejs.onError = function (err) {
+        // This will fire if something breaks before the real error handlers kick in
+        document.body.innerHTML = '' +
+                '<div class="row shadow" style="margin-top: 1em">' +
+                '<div class="small-12 small-centered columns">' +
+                '<div class="panel" style="margin-top: 1em">' +
+                'Whoops, looks like something ' +
+                'broke :( Refreshing the page should help.' +
+                '</div></div></div></div>';
+
+        console.log(err);
+    };
+
+    // And on with the show
+    requirejs(["../main"]);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,88 @@
+===== total-view
+<p>{{total}} records in total.
+    <a href="#restart">(Restart)</a>
+    <a href="#retrain">(Retrain)</a>
+</p>
+
+===== total-search
+<p>
+    {{if total|notequals>0}}
+    {{first}}-{{last}} out of
+    {{/if}}
+    {{total}} results for <i><span
+        class="{{emojiclass}}">{{query}}</span></i>. <i>(Search took
+    {{elapsed}}s)</i>
+    <a href="#restart">(Restart)</a>
+    <a href="#retrain">(Retrain)</a>
+</p>
+
+===== table-data
+{{if records|length|notequals>0}}
+<table id="table-data">
+    <thead>
+    <tr id="row-header">
+        <th class="text-center">
+            ID
+        </th>
+        <th>
+            Content
+        </th>
+        <th class="text-center">
+            Flag
+        </th>
+        <th class="text-center col-category">
+            Cat.
+        </th>
+        <th class="col-comment">
+            Comment
+        </th>
+        <th class="col-tags">
+            Tags
+        </th>
+    </tr>
+    </thead>
+    <tbody>
+    {{records}}
+    <tr id="row-{{rowid}}">
+        <td class="text-center">
+            {{rowid}}
+        </td>
+        <td class="{{emojiclass}}">
+            {{content|trim|nl2br}}
+            <div class="smaller-text lang-div">
+                Languages:
+                <span id="lang-{{rowid}}" style="width:10em">
+                    {{if language|trim|empty}}
+                    None{{else}}{{language|trim}}{{/if}}</span>
+                <a style='float:right' href="#langid&id={{rowid}}">
+                    (Detect languages...)</a>
+            </div>
+        </td>
+        <td class="text-center">
+            <input id="flag-{{rowid}}" type="checkbox" {{if flag}} checked{{/if}}>
+        </td>
+        <td id="cat-{{rowid}}" class="text-center">
+            {{category}}
+        </td>
+        <td id="cmt-{{rowid}}">
+            {{if comment|trim|empty}}
+            <span class="empty-comment static-comment">
+                Click to add
+            </span>
+            {{else}}
+            <span class="static-comment">{{comment|trim|nl2br}}</span>
+            {{/if}}
+        </td>
+        <td id="tags-{{rowid}}">
+            <input value="{{tag|trim}}" class="tagit-hidden-field">
+            {{if tag|trim|empty}}
+            <span class="empty-comment">
+                Click to add
+            </span>
+            {{/if}}
+        </td>
+    </tr>
+    {{/records}}
+    </tbody>
+</table>
+{{/if}}

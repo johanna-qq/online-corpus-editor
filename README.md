@@ -16,6 +16,11 @@ From the server directory, run `start-server` (`start-server.bat` for Windows).
 
 ## Usage (Client)
 
+Serve the entire `client` directory with your favourite web server.
+
+
+## Usage (Client -- Alpha)
+
 Install `npm`, `bower` and `grunt-cli`.
 
     $ npm install -g bower grunt-cli
@@ -31,7 +36,7 @@ Build the application:
 
 (Optionally, use `grunt build-imagemin` to use `grunt-contrib-imagemin` as well.)
 
-Serve the `dist` folder using your favourite web server or `grunt serve:dist`
+Serve the `dist` folder with your favourite web server or `grunt serve:dist`
 
 ### Development
 

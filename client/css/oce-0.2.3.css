@@ -1,0 +1,172 @@
+/* Get them vertical scrollbars in there -- We'll need them eventually anyway */
+body {
+    overflow-y: scroll;
+}
+
+/*
+*  Utility classes
+*/
+
+.shadow {
+    box-shadow: 1px 1px 15px rgba(0, 0, 0, 0.15);
+}
+
+.transparent {
+    background: transparent;
+}
+
+.smaller-text {
+    font-size: 90%;
+}
+
+/*
+* Paginator
+*/
+.fixed-bottom {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+    z-index: 99;
+    background-color: #FFFFFF;
+    border-radius: 10px 10px 0 0;
+}
+
+.footer-bar {
+    padding: 5px;
+}
+
+.footer-bar .pagination {
+    margin-bottom: 0;
+}
+
+/*
+* Data table
+*/
+.col-comment {
+    min-width: 15em;
+}
+
+.col-category {
+    min-width: 4em;
+}
+
+.col-tags {
+    min-width: 10em;
+}
+
+#table-data .row-highlight {
+    background-color: #CCE8F1;
+}
+
+.lang-div {
+    color: #008CBA;
+}
+
+/*
+* Input fields
+*/
+td input[type="checkbox"] {
+    /* Center checkboxes vertically */
+    margin: 0 auto;
+}
+
+td input[type="text"] {
+    /* For tag boxes */
+    display: inline;
+    height: auto;
+    margin-bottom: 0;
+    font-size: inherit;
+    line-height: inherit;
+}
+
+td textarea {
+    margin: 0;
+}
+
+ul.tagit {
+    margin-bottom: inherit;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+ul.tagit > li.tagit-new {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.empty-comment {
+    /* Placeholder for empty comments */
+    font-style: italic;
+    color: #A0A0A0;
+}
+
+#dynamic-category {
+    /* Length of 'category' textbox */
+    width: 2em;
+}
+
+#dynamic-language {
+    /* Settings for 'language' textbox */
+    padding: 2px;
+}
+
+/*
+* Main data container
+*/
+#main-container {
+    margin-top: 15px;
+}
+
+/* Viewport */
+.viewport {
+}
+
+.viewportInner {
+    position: relative;
+    overflow: hidden;
+}
+
+.view {
+    float: left;
+    overflow: auto;
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+/*
+* minEmoji -- For copy-pasting emoji
+*/
+.em {
+    color: transparent;
+    line-height: 20px;
+}
+
+/*
+* Search help dropdown
+*/
+#searchhelp > p {
+    font-size: inherit;
+}
+
+#searchhelp {
+    max-width: 350px;
+}
+
+/*
+* Extra helper classes needed for jQuery UI
+*/
+.ui-helper-hidden-accessible {
+    border: 0;
+    clip: rect(0 0 0 0);
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    width: 1px;
+}
+
