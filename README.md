@@ -8,7 +8,7 @@ Install Python 3.4.3 and the dependencies listed in `main.py`.
 
 Some of the dependencies are bundled; note that these will take precedence over versions installed elsewhere on the system for the server script.
 
-Put your corpus database and other data files in the `data` folder -- See the configuration sections of `main.py` and `oce/config.py` for more information.
+You will need to provide your own corpus database and other data files; put them in the `data` folder.  See the configuration sections of `main.py` and `oce/config.py` for more information.
 
 From the server directory, run `start-server` (`start-server.bat` for Windows).
 
