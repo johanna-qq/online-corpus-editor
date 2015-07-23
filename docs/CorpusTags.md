@@ -21,13 +21,13 @@ Use of a word of another class as a verb.
 
 Examples of named entities.
 
-> (264309) "Finally am watching 一泡而紅! Been looking high and low for this show!"
+> (264309) "Finally am watching *一泡而紅*! Been looking high and low for this show!"
 
 ### Lexical
 
 English terms used differently in Singapore English.
 
-> (6350) "@USERNAME EH HAHAHAHA ANYHOW ONLY"
+> (6350) "@USERNAME EH HAHAHAHA *ANYHOW* *ONLY*"
 
 ### GotExistential, GotExperiential, GotPassive, GotPossessive
 
@@ -106,7 +106,7 @@ Instances of pro-drop (generally subject pro-drop).
 
 Use of SAI in embedded questions.
 
-> (2404888) "... I wonder will I reach on time ..."
+> (2404888) "... I wonder *will I* reach on time ..."
 
 ### Hypercorrection
 
@@ -124,7 +124,7 @@ Deletion of "to" (esp. infinitival).
 
 Wh-phrases in-situ.
 
-> (1964) "... u do how many than strain? ..."
+> (1964) "... u do *how many* than strain? ..."
 (~= "How many did you do before experiencing strain?")
 
 ### Morphology Loss
