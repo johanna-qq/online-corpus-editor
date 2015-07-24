@@ -262,6 +262,10 @@ define(function (require) {
 
                             // -[ Update Server ]-
                             if (newValue !== currentValue) {
+                                // Last check -- We don't want to save 'None' to the server.
+                                if (newValue === "None") {
+                                    newValue = ''
+                                }
                                 var recordID =
                                     /([0-9]+)/.exec(currentSpan.attr('id'))[1];
                                 Controller.requests

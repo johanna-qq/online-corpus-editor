@@ -115,7 +115,7 @@ class DB:
         total = self.session.query(RecordCount.count).scalar()
 
         # Tags available
-        tags = [x[0] for x in self.session.query(RecordTags.tag)]
+        tags = [x[0] for x in self.session.query(RecordTags.tag).order_by(RecordTags.tag)]
 
         return {
             'total': total,
@@ -124,12 +124,42 @@ class DB:
 
     def fetch_literal(self, query):
         """
-        Literal SQL queries on the main Records DB.
+        Literal SQL queries on the main Records table.
         """
         results = [row.dictionary for row in
-                   self.session.query(Records).filter(sqlalchemy.sql.expression.text(query)).order_by(Records.rowid)]
+                   self.session.query(Records).filter(sqlalchemy.sql.expression.text(query))]
 
         return results, len(results)
+
+    def fetch_literal_fts(self, query):
+        """
+        Literal SQL queries on the Records FTS table.
+        """
+        results = [row.dictionary for row in
+                   self.session.query(RecordsFTS).filter(sqlalchemy.sql.expression.text(query))]
+
+        return results, len(results)
+
+    def fetch_literal_fts_fast(self, query):
+        """
+        -- INSECURE --
+        Literal SQL queries on the FTS table using the sqlite3 module
+        """
+        start_time = timeit.default_timer()
+        import sqlite3
+
+        # Notes:
+        # Selecting by docid on a match query is super fast
+        # selecting by rowid is super slow.
+        # Our triggers ensure that docid == rowid
+
+        conn = sqlite3.connect(self.db_file)
+        c = conn.cursor()
+        results = c.execute(query).fetchall()
+        elapsed = "{:.3f}".format(timeit.default_timer() - start_time)
+        print("sqlite3: Took " + elapsed + "s.")
+        print("Number of results: " + str(len(results)))
+        return results
 
     def fetch_search_results(self, query, offset, limit):
         """
@@ -159,11 +189,12 @@ class DB:
         query, return_query = process_query(query)
 
         # Bind the FTS search
+        # TODO: Use only docid for subquery with LIMIT -- Prevents loading everything to memory
         filter_string = RecordsFTS.__tablename__ + " MATCH :text"
         search = search.filter(sqlalchemy.sql.expression.text(
             filter_string)).params(
             text=query) \
-            .order_by(RecordsFTS.rowid)
+            .order_by(RecordsFTS.docid)
 
         print("Searching for '{}'.".format(
             query.encode('ascii', 'xmlcharrefreplace').decode()))
@@ -276,6 +307,8 @@ class DB:
         return
 
     def pre_update_language(self, row, languages):
+        if languages.strip() == '':
+            return ''
         return self.normalise_language(languages)
 
     def normalise_language(self, languages):
@@ -420,7 +453,8 @@ Base = sqlalchemy.ext.declarative.declarative_base()
 class RecordsFTS(Base):
     __tablename__ = MAIN_TABLE + '_fts'
 
-    rowid = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+    docid = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+    rowid = sqlalchemy.Column(sqlalchemy.Integer)
     content = sqlalchemy.Column(sqlalchemy.Text)
     flag = sqlalchemy.Column(sqlalchemy.Boolean)
     category = sqlalchemy.Column(sqlalchemy.Integer)

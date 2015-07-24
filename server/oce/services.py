@@ -19,7 +19,7 @@ def init(sqlite=None, ws=None):
 def langid_function(func):
     """
     Wraps functions that use the langid module with a try..except block that
-    catches NLTK LookupErrors.
+    catches NLTK LookupErrors, among other things.
     :param func:
     :return:
     """
@@ -230,3 +230,12 @@ class Act:  # Hurr hurr
 
         namespace = dict(globals(), **locals())
         code.interact(local=namespace)
+
+    # --------------
+    # Debug commands
+    # --------------
+
+    def features_of_record(self, rowid):
+        record = self.db.fetch_record(rowid)
+        features = self.langid.extract_features(record['content'])
+        return features
