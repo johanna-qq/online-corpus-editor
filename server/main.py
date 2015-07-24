@@ -84,6 +84,7 @@ while not quit_flag:
         continue
     except oce.ShutdownInterrupt:
         logger.info("=== Server shutting down ===")
+        quit_flag = True
     except Exception as e:
         logger.error("=== Server Error ===")
         raise

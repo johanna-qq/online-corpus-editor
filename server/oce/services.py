@@ -9,9 +9,11 @@ import oce.langid
 
 logger = oce.getLogger(__name__)
 
+
 def init(sqlite=None, ws=None):
     actor = Act(sqlite, ws)
     actor.start_ws_server()
+
 
 # Decorator
 def langid_function(func):
@@ -190,9 +192,26 @@ class Act:  # Hurr hurr
         :param request:
         :return:
         """
+
+        import sys
+        try:
+            import readline
+            import rlcompleter
+            if sys.platform.startswith('darwin'):
+                readline.parse_and_bind("bind ^I rl_complete")
+            else:
+                readline.parse_and_bind("tab: complete")
+        except ImportError:
+            print("Module readline is not available.")
+        
+        import code
+        namespace = dict(globals(), **locals())
+        code.interact(local=namespace)
+
         raise oce.util.ShutdownInterrupt
 
     def shutdown(self):
+
         print("Shutting down connection manager...")
         # The connection manager uses coroutines
         asyncio.get_event_loop().run_until_complete(self.conn.shutdown())

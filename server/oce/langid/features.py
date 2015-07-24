@@ -16,7 +16,7 @@ from oce.config import sge_words
 from oce.config import valid_pinyin
 
 # === Spellcheckers ===
-enchant.set_param("enchant.myspell.dictionary.path","./lib/dict")
+enchant.set_param("enchant.myspell.dictionary.path", "./lib/dict")
 dictionary_list = ["en_US-large", "en_GB-large", "ms_MY"]
 dictionaries = {}
 for language in dictionary_list:
@@ -38,29 +38,35 @@ def extract_features(sentence):
     features["has_z_ending_word"] = has_z_ending_word(tokenised)
     # English
     features["has_en_US"] = has_language(tokenised_spellcheck, "en_US-large")
-    features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1, "en_US-large")
+    features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1,
+                                                   "en_US-large")
     features["has_en_GB"] = has_language(tokenised_spellcheck, "en_GB-large")
-    features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1, "en_GB-large")
+    features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1,
+                                                   "en_GB-large")
     # Malay
     features["has_ms_MY"] = has_language(tokenised_spellcheck, "ms_MY")
-    features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1, "ms_MY")
+    features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1,
+                                                "ms_MY")
 
-    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "en_US-large")
-    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "en_GB-large")
-    features = add_binary_portion_language(features, tokenised_spellcheck, 1, "ms_MY")
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1,
+                                           "en_US-large")
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1,
+                                           "en_GB-large")
+    features = add_binary_portion_language(features, tokenised_spellcheck, 1,
+                                           "ms_MY")
 
     ## Secondary features
     # Chinese
     features["has_zh"] = (features["has_zh_chars"] or
-                            features["has_pinyin"])
+                          features["has_pinyin"])
     features["no_zh"] = not features["has_zh"]
     # English
     features["has_en"] = (features["has_en_US"] or
-                                  features["has_en_GB"])
+                          features["has_en_GB"])
     features["no_en"] = not features["has_en"]
     # Singlish
     features["has_sge"] = (features["has_sge_words"] or
-                            features["has_z_ending_word"])
+                           features["has_z_ending_word"])
     features["no_sge"] = not features["has_sge"]
     # Malay
     features["has_ms"] = (features["has_ms_MY"])
@@ -68,19 +74,20 @@ def extract_features(sentence):
 
     # English-Chinese
     features["has_en_zh"] = (features["has_zh"]
-                                 and
-                                 features["has_en"])
+                             and
+                             features["has_en"])
     # English-Malay
     features["has_en_ms"] = (features["has_ms"]
-                                 and
-                                 features["has_en"])
+                             and
+                             features["has_en"])
     # English-Chinese-Malay
     features["has_en_zh_ms"] = (features["has_en"]
-                                 and
-                                 features["has_zh"]
-                                 and
-                                 features["has_ms"])
+                                and
+                                features["has_zh"]
+                                and
+                                features["has_ms"])
     return features
+
 
 # === Generic Functions ===
 def tokenise(sentence):
@@ -89,6 +96,9 @@ def tokenise(sentence):
     :param sentence:
     :return:
     """
+
+    # TODO: Don't modify in placeeee
+
     # For now, just use the default nltk tokeniser
     # TODO: Try the pyenchant tokeniser
     tokenised = nltk.tokenize.word_tokenize(sentence)
@@ -96,18 +106,21 @@ def tokenise(sentence):
     # General pre-processing
     for index, token in enumerate(tokenised):
         # Remove punctuation, then whitespace
-        #tokenised[index] = token.strip('.,@\'"*?!').strip()
-        tokenised[index] = token.strip("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip()
+        # tokenised[index] = token.strip('.,@\'"*?!').strip()
+        tokenised[index] = token.strip(
+            "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip()
 
     # Drop empty tokens and return
     return [token for token in tokenised if token != '']
 
+
 def prep_tokens_for_spellcheck(tokenised):
     # Specific pre-processing steps needed for spellcheckers
-    
+
     # Drop non-printable characters
     for index, token in enumerate(tokenised):
-        tokenised[index] = ''.join([char for char in token if char in string.printable])
+        tokenised[index] = ''.join(
+            [char for char in token if char in string.printable])
 
     # Words to ignore, including the empty string
     blacklist = set([""])
@@ -118,15 +131,18 @@ def prep_tokens_for_spellcheck(tokenised):
     tokenised = [token for token in tokenised if token not in blacklist]
     return tokenised
 
+
 def word_in_dictionary(word, dictionary_name):
-    print("word_in_dictionary: " + word)
+    # TODO: Check common variants: Uppercase, Sentence-case, Lowercase
     return dictionaries[dictionary_name].check(word)
+
 
 def has_language(tokenised, language):
     for token in tokenised:
         if word_in_dictionary(token, language):
             return True
     return False
+
 
 def portion_language(tokenised, precision, language):
     """
@@ -148,6 +164,7 @@ def portion_language(tokenised, precision, language):
     rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
     return float(rounded)
 
+
 def add_binary_portion_language(featureset, tokenised, precision, language):
     # Calculate all the binary features we want:
     #   - For each precision step i, we want <at least i>, <less than i>
@@ -156,7 +173,7 @@ def add_binary_portion_language(featureset, tokenised, precision, language):
     portion = portion_language(tokenised, precision, language)
 
     # Step 1: Find all the precision steps
-    steplist = [n/(10**precision) for n in range(1, 10**precision+1)]
+    steplist = [n / (10 ** precision) for n in range(1, 10 ** precision + 1)]
     for step in steplist:
         if portion < step:
             featureset[language + "_at_least_" + str(step)] = False
@@ -165,6 +182,7 @@ def add_binary_portion_language(featureset, tokenised, precision, language):
             featureset[language + "_at_least_" + str(step)] = True
             featureset[language + "_less_than_" + str(step)] = False
     return featureset
+
 
 # === Chinese ===
 def has_zh_chars(str):
@@ -253,10 +271,8 @@ def check_pinyin(word):
         return False
 
     # Step 4: Check it against our other dictionaries; better safe than sorry?
-    for language in dictionaries.keys():
-        print("pinyin_check: " + word)
-        if dictionaries[language].check(word):
-            # TODO: dictionary name
+    for language in dictionary_list:
+        if word_in_dictionary(word, language):
             logger.debug("Found '" + word + "' in dictionary: " + language)
             return False
 
@@ -280,6 +296,7 @@ def has_sge_words(tokenised):
             if sge_list.check(token):
                 return True
     return False
+
 
 def has_z_ending_word(tokenised):
     for token in tokenised:
