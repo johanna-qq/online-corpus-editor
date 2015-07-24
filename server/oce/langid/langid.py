@@ -27,18 +27,18 @@ class LangIDController:
         self.classifier = self.load_classifier(trained_file)
         if self.classifier is not None:
             if not hasattr(self.classifier, 'model_name'):
-                print("The loaded classifier does not specify which model it "
-                      "uses; it could be different from the one expected.  "
-                      "Use .train_classifier() followed by .save_classifier() "
-                      "to overwrite it.")
+                logger.warning("The loaded classifier does not specify which model it "
+                               "uses; it could be different from the one expected.  "
+                               "Use .train_classifier() followed by .save_classifier() "
+                               "to overwrite it.")
             elif self.classifier.model_name != model:
-                print("The model used by the loaded classifier (" +
-                      self.classifier.model_name +
-                      ") is different from the one requested (" +
-                      model +
-                      ").  "
-                      "Use .train_classifier() followed by .save_classifier() "
-                      "to overwrite it.")
+                logger.warning("The model used by the loaded classifier (" +
+                               self.classifier.model_name +
+                               ") is different from the one requested (" +
+                               model +
+                               ").  "
+                               "Use .train_classifier() followed by .save_classifier() "
+                               "to overwrite it.")
         else:
             logger.warning("No previously trained classifier found. (" +
                            trained_file + ")")
@@ -52,8 +52,8 @@ class LangIDController:
             f = open(trained_file, 'rb')
             classifier = pickle.load(f)
             f.close()
-            print("Loaded previously trained classifier. (" +
-                  trained_file + ")")
+            logger.info("Loaded previously trained classifier. (" +
+                        trained_file + ")")
             return classifier
         except FileNotFoundError:
             return None
@@ -144,7 +144,6 @@ class LangIDController:
         """
         classifier = self.get_classifier()
         classifier.show_most_informative_features(20)
-        print(nltk.tokenize.word_tokenize(str))
 
     def shutdown(self):
         logger.info("Saving trained classifier.")

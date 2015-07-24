@@ -3,6 +3,7 @@
 
 import datetime
 import logging
+import sys
 
 # === Top-level Config ===
 from oce.config import log_level
@@ -36,7 +37,16 @@ formatter = logging.Formatter(
 formatter.converter = get_gmt8
 formatter.datefmt = '%Y-%m-%d %H:%M:%S'
 
-console_handler = logging.StreamHandler()
+class AsciiStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        record.msg = record.msg.encode('ascii', 'xmlcharrefreplace').decode()
+        super().emit(record)
+
+# For Windows systems, the default command prompt does not like printing unicode characters.
+if sys.platform.startswith("win32"):
+    console_handler = AsciiStreamHandler()
+else:
+    console_handler = logging.StreamHandler()
 
 console_handler.setFormatter(formatter)
 root_logger.addHandler(console_handler)
