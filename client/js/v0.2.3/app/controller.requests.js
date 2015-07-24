@@ -162,6 +162,16 @@ define(function (require) {
                 Controller.nav.saveHash({
                     noLoad: true
                 })
+            },
+
+            execDebug: function () {
+                var request = {
+                    command: 'debug'
+                };
+                WS.sendRequest(request);
+                Controller.nav.saveHash({
+                    noLoad: true
+                })
             }
         };
     }

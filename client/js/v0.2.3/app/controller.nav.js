@@ -200,8 +200,9 @@ define(function (require) {
                     request.operation = 'restart';
                 } else if (typeof queryObj.shutdown !== "undefined") {
                     request.operation = 'shutdown';
+                } else if (typeof queryObj.debug !== "undefined") {
+                    request.operation = 'debug';
                 }
-
 
                 return request;
             },
@@ -273,6 +274,8 @@ define(function (require) {
                     Controller.requests.execRestart();
                 } else if (request.operation === 'shutdown') {
                     Controller.requests.execShutdown();
+                } else if (request.operation === 'debug') {
+                    Controller.requests.execDebug();
                 }
             },
 
@@ -304,6 +307,9 @@ define(function (require) {
                 } else if (request.operation === 'shutdown') {
                     document.title = prefix +
                         "Shutdown";
+                } else if (request.operation === 'debug') {
+                    document.title = prefix +
+                        "Debug";
                 }
             },
 

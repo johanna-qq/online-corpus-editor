@@ -49,9 +49,9 @@ def langid_function(func):
 
 
 class Act:  # Hurr hurr
-    # --------------
-    # Initialisation
-    # --------------
+    # ---------------------------
+    # Initialisation and Shutdown
+    # ---------------------------
     def __init__(self, db_file, ws_port):
         logger.info("Initialising system components...")
 
@@ -79,6 +79,22 @@ class Act:  # Hurr hurr
             # be reloaded (if a restart was requested).
             self.shutdown()
             raise
+
+    def shutdown(self):
+
+        print("Shutting down connection manager...")
+        # The connection manager uses coroutines
+        asyncio.get_event_loop().run_until_complete(self.conn.shutdown())
+        self.conn = None
+
+        print("Shutting down DB manager...")
+        self.db.shutdown()
+        self.db = None
+
+        print("Shutting down langid module...")
+        self.langid.shutdown()
+        self.langid = None
+        return
 
     # --------
     # Commands
@@ -189,39 +205,28 @@ class Act:  # Hurr hurr
     def exec_shutdown(self, request=None):
         """
         Same as restart, but we're shutting down now
-        :param request:
-        :return:
         """
+        raise oce.util.ShutdownInterrupt
 
+    def exec_debug(self, request=None):
+        """
+        Starts an interactive console on the current Act object for debugging.
+        """
         import sys
+
         try:
             import readline
             import rlcompleter
+
             if sys.platform.startswith('darwin'):
                 readline.parse_and_bind("bind ^I rl_complete")
             else:
                 readline.parse_and_bind("tab: complete")
         except ImportError:
-            print("Module readline is not available.")
-        
+            # On Windows, probably
+            print("Could not load 'readline' module (probably on Win32): Tab completion will not work.")
+
         import code
+
         namespace = dict(globals(), **locals())
         code.interact(local=namespace)
-
-        raise oce.util.ShutdownInterrupt
-
-    def shutdown(self):
-
-        print("Shutting down connection manager...")
-        # The connection manager uses coroutines
-        asyncio.get_event_loop().run_until_complete(self.conn.shutdown())
-        self.conn = None
-
-        print("Shutting down DB manager...")
-        self.db.shutdown()
-        self.db = None
-
-        print("Shutting down langid module...")
-        self.langid.shutdown()
-        self.langid = None
-        return

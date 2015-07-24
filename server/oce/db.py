@@ -122,6 +122,15 @@ class DB:
             'tags': tags
         }
 
+    def fetch_literal(self, query):
+        """
+        Literal SQL queries on the main Records DB.
+        """
+        results = [row.dictionary for row in
+                   self.session.query(Records).filter(sqlalchemy.sql.expression.text(query)).order_by(Records.rowid)]
+
+        return results, len(results)
+
     def fetch_search_results(self, query, offset, limit):
         """
         Returns an object describing the results of a search query.s
