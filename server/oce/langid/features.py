@@ -38,15 +38,12 @@ def extract_features(sentence):
     features["has_z_ending_word"] = has_z_ending_word(tokenised)
     # English
     features["has_en_US"] = has_language(tokenised_spellcheck, "en_US-large")
-    features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1,
-                                                   "en_US-large")
+    # features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1, "en_US-large")
     features["has_en_GB"] = has_language(tokenised_spellcheck, "en_GB-large")
-    features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1,
-                                                   "en_GB-large")
+    # features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1, "en_GB-large")
     # Malay
     features["has_ms_MY"] = has_language(tokenised_spellcheck, "ms_MY")
-    features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1,
-                                                "ms_MY")
+    # features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1, "ms_MY")
 
     features = add_binary_portion_language(features, tokenised_spellcheck, 1,
                                            "en_US-large")
@@ -55,23 +52,24 @@ def extract_features(sentence):
     features = add_binary_portion_language(features, tokenised_spellcheck, 1,
                                            "ms_MY")
 
-    ## Secondary features
+    ## Consolidated features
     # Chinese
     features["has_zh"] = (features["has_zh_chars"] or
                           features["has_pinyin"])
-    features["no_zh"] = not features["has_zh"]
+    # features["no_zh"] = not features["has_zh"]
     # English
     features["has_en"] = (features["has_en_US"] or
                           features["has_en_GB"])
-    features["no_en"] = not features["has_en"]
+    # features["no_en"] = not features["has_en"]
     # Singlish
     features["has_sge"] = (features["has_sge_words"] or
                            features["has_z_ending_word"])
-    features["no_sge"] = not features["has_sge"]
+    # features["no_sge"] = not features["has_sge"]
     # Malay
     features["has_ms"] = (features["has_ms_MY"])
-    features["no_ms"] = not features["has_ms"]
+    # features["no_ms"] = not features["has_ms"]
 
+    ## Language mixes
     # English-Chinese
     features["has_en_zh"] = (features["has_zh"]
                              and
@@ -80,7 +78,15 @@ def extract_features(sentence):
     features["has_en_ms"] = (features["has_ms"]
                              and
                              features["has_en"])
-    # English-Chinese-Malay
+    # Singlish-Chinese
+    features["has_sge_zh"] = (features["has_zh"]
+                              and
+                              features["has_sge"])
+    # Singlish-Malay
+    features["has_sge_ms"] = (features["has_ms"]
+                              and
+                              features["has_sge"])
+    # English-Chinese-Malay (Unlikely?)
     features["has_en_zh_ms"] = (features["has_en"]
                                 and
                                 features["has_zh"]
@@ -97,18 +103,26 @@ def tokenise(sentence):
     :return:
     """
 
-    # TODO: Don't modify in placeeee
+    ## General pre-processing
+    # Remove common URL patterns from our sentence.
+    logger.debug("Tokenising: '" + sentence + "'")
+    sentence = re.sub(r'https?://[^ ]*', '', sentence)
+    logger.debug("URLs removed: '" + sentence + "'")
 
     # For now, just use the default nltk tokeniser
     # TODO: Try the pyenchant tokeniser
     tokenised = nltk.tokenize.word_tokenize(sentence)
 
-    # General pre-processing
-    for index, token in enumerate(tokenised):
-        # Remove punctuation, then whitespace
-        # tokenised[index] = token.strip('.,@\'"*?!').strip()
-        tokenised[index] = token.strip(
-            "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip()
+    ## General token processing
+    # Split words with slashes into multiple tokens
+    temp = []
+    for token in tokenised:
+        split = token.split("/")
+        temp = temp + split
+    tokenised = temp
+
+    # Remove punctuation, then whitespace.
+    tokenised = [token.strip("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip() for token in tokenised]
 
     # Drop empty tokens and return
     return [token for token in tokenised if token != '']
@@ -118,23 +132,28 @@ def prep_tokens_for_spellcheck(tokenised):
     # Specific pre-processing steps needed for spellcheckers
 
     # Drop non-printable characters
-    for index, token in enumerate(tokenised):
-        tokenised[index] = ''.join(
-            [char for char in token if char in string.printable])
+    tokenised = [''.join([char for char in token if char in string.printable]) for token in tokenised]
 
     # Words to ignore, including the empty string
-    blacklist = set([""])
+    blacklist = {""}
     # Twitter jargon (should always be in uppercase?)
     blacklist.add("USERNAME")
     blacklist.add("RT")
 
     tokenised = [token for token in tokenised if token not in blacklist]
+    logger.debug("Tokens for spellchecking: [" + '], ['.join(tokenised) + "]")
     return tokenised
 
 
 def word_in_dictionary(word, dictionary_name):
     # TODO: Check common variants: Uppercase, Sentence-case, Lowercase
-    return dictionaries[dictionary_name].check(word)
+    dictionary = dictionaries[dictionary_name]
+
+    return (dictionary.check(word)
+            or dictionary.check(word.upper())
+            or dictionary.check(word.lower())
+            or dictionary.check(word.title())
+            )
 
 
 def has_language(tokenised, language):
@@ -154,6 +173,10 @@ def portion_language(tokenised, precision, language):
     :param language:
     :return:
     """
+    # The prepared sentence will sometimes be empty (e.g., if it consists solely of non-printable characters)
+    if len(tokenised) == 0:
+        return 0
+
     yes = 0
     no = 0
     for token in tokenised:
@@ -177,10 +200,10 @@ def add_binary_portion_language(featureset, tokenised, precision, language):
     for step in steplist:
         if portion < step:
             featureset[language + "_at_least_" + str(step)] = False
-            featureset[language + "_less_than_" + str(step)] = True
+            # featureset[language + "_less_than_" + str(step)] = True
         else:
             featureset[language + "_at_least_" + str(step)] = True
-            featureset[language + "_less_than_" + str(step)] = False
+            # featureset[language + "_less_than_" + str(step)] = False
     return featureset
 
 
@@ -194,7 +217,6 @@ def has_zh_chars(str):
         cjkd = ord(u'\U0002B740') <= ord(c) <= ord(u'\U0002B81F')
         cjke = ord(u'\U0002B820') <= ord(c) <= ord(u'\U0002CEAF')
         if cjk or cjka or cjkb or cjkc or cjkd or cjke:
-            print("zh_char: " + c)
             return True
     return False
 
@@ -288,11 +310,8 @@ def has_pinyin(tokenised):
 
 # === Singlish ===
 def has_sge_words(tokenised):
-    print(tokenised)
     for token in tokenised:
-        print(token)
         for sge_list in sge_lists:
-            print("sge_words: " + token)
             if sge_list.check(token):
                 return True
     return False
