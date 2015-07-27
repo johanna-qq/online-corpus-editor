@@ -17,12 +17,22 @@ from oce.config import valid_pinyin
 
 # === Spellcheckers ===
 enchant.set_param("enchant.myspell.dictionary.path", "./lib/dict")
-dictionary_list = ["en_US-large", "en_GB-large", "ms_MY"]
-dictionaries = {}
-for language in dictionary_list:
-    dictionaries[language] = enchant.Dict(language)
-
-sge_lists = [enchant.request_pwl_dict(pwl) for pwl in sge_words]
+# --- Languages and minor variants ---
+spelling_languages = {
+    "en": ["en_US-large", "en_GB-large"],
+    "ms": ["ms_MY"]
+    # "sge" handled with personal word lists below
+}
+# --- Corresponding dictionaries ---
+spelling_dictionaries = {}
+for language in spelling_languages.keys():
+    spelling_dictionaries[language] = {}
+    for variant in spelling_languages[language]:
+        spelling_dictionaries[language][variant] = enchant.Dict(variant)
+# --- SgE word lists ---
+spelling_dictionaries["sge"] = {}
+for wordlist in sge_words:
+    spelling_dictionaries["sge"][wordlist] = enchant.request_pwl_dict(wordlist)
 
 
 def extract_features(sentence):
@@ -34,40 +44,29 @@ def extract_features(sentence):
     features["has_zh_chars"] = has_zh_chars(sentence)
     features["has_pinyin"] = has_pinyin(tokenised)
     # Singlish
-    features["has_sge_words"] = has_sge_words(tokenised)
+    features["has_spelling_sge"] = has_spelling_language(tokenised_spellcheck, "sge")
     features["has_z_ending_word"] = has_z_ending_word(tokenised)
     # English
-    features["has_en_US"] = has_language(tokenised_spellcheck, "en_US-large")
-    # features["portion_en_US_1"] = portion_language(tokenised_spellcheck, 1, "en_US-large")
-    features["has_en_GB"] = has_language(tokenised_spellcheck, "en_GB-large")
-    # features["portion_en_GB_1"] = portion_language(tokenised_spellcheck, 1, "en_GB-large")
+    features["has_spelling_en"] = has_spelling_language(tokenised_spellcheck, "en")
     # Malay
-    features["has_ms_MY"] = has_language(tokenised_spellcheck, "ms_MY")
-    # features["portion_ms_1"] = portion_language(tokenised_spellcheck, 1, "ms_MY")
+    features["has_spelling_ms"] = has_spelling_language(tokenised_spellcheck, "ms")
 
     features = add_binary_portion_language(features, tokenised_spellcheck, 1,
-                                           "en_US-large")
+                                           "en")
     features = add_binary_portion_language(features, tokenised_spellcheck, 1,
-                                           "en_GB-large")
-    features = add_binary_portion_language(features, tokenised_spellcheck, 1,
-                                           "ms_MY")
+                                           "ms")
 
     ## Consolidated features
     # Chinese
     features["has_zh"] = (features["has_zh_chars"] or
                           features["has_pinyin"])
-    # features["no_zh"] = not features["has_zh"]
-    # English
-    features["has_en"] = (features["has_en_US"] or
-                          features["has_en_GB"])
-    # features["no_en"] = not features["has_en"]
     # Singlish
-    features["has_sge"] = (features["has_sge_words"] or
+    features["has_sge"] = (features["has_spelling_sge"] or
                            features["has_z_ending_word"])
-    # features["no_sge"] = not features["has_sge"]
+    # English
+    features["has_en"] = (features["has_spelling_en"])
     # Malay
-    features["has_ms"] = (features["has_ms_MY"])
-    # features["no_ms"] = not features["has_ms"]
+    features["has_ms"] = (features["has_spelling_ms"])
 
     ## Language mixes
     # English-Chinese
@@ -97,12 +96,6 @@ def extract_features(sentence):
 
 # === Generic Functions ===
 def tokenise(sentence):
-    """
-    Returns a tokenised version of the sentence
-    :param sentence:
-    :return:
-    """
-
     ## General pre-processing
     # Remove common URL patterns from our sentence.
     logger.debug("Tokenising: '" + sentence + "'")
@@ -145,25 +138,52 @@ def prep_tokens_for_spellcheck(tokenised):
     return tokenised
 
 
-def word_in_dictionary(word, dictionary_name):
-    # TODO: Check common variants: Uppercase, Sentence-case, Lowercase
-    dictionary = dictionaries[dictionary_name]
+def word_in_dictionary(word, language):
+    dictionaries = spelling_dictionaries[language]
 
-    return (dictionary.check(word)
-            or dictionary.check(word.upper())
-            or dictionary.check(word.lower())
-            or dictionary.check(word.title())
-            )
+    # Checks common variants of the word
+    to_check = [word, word.upper(), word.lower(), word.title()]
+
+    for dictionary in dictionaries.values():
+        for variant in to_check:
+            if dictionary.check(variant):
+                return True
+    return False
 
 
-def has_language(tokenised, language):
+def word_in_dictionary_unique(word, main_language):
+    """
+    Returns true only if the given word does *not* show up in any of the other dictionaries loaded
+    Dictionaries are grouped by family (so, for example, en_GB and en_US don't cancel each other out here)
+    """
+    other_languages = [lang for lang in spelling_dictionaries.keys() if lang != main_language]
+
+    # Step 1: Is the word even in the specified dictionary?
+    if not word_in_dictionary(word, main_language):
+        return False
+
+    # Step 2: Check against all the other dictionaries, returning asap
+    for other_language in other_languages:
+        if word_in_dictionary(word, other_language):
+            return False
+    return True
+
+
+def has_spelling_language(tokenised, language):
     for token in tokenised:
         if word_in_dictionary(token, language):
             return True
     return False
 
 
-def portion_language(tokenised, precision, language):
+def has_spelling_language_unique(tokenised, language):
+    for token in tokenised:
+        if word_in_dictionary_unique(token, language):
+            return True
+    return False
+
+
+def portion_spelling_language(tokenised, precision, language):
     """
     Find the fraction of the tokens that were found in the specified
     dictionary.
@@ -188,22 +208,53 @@ def portion_language(tokenised, precision, language):
     return float(rounded)
 
 
-def add_binary_portion_language(featureset, tokenised, precision, language):
-    # Calculate all the binary features we want:
-    #   - For each precision step i, we want <at least i>, <less than i>
+def portion_spelling_language_unique(tokenised, precision, language):
+    """
+    This version only takes into account the words unique to the given
+    language and the words that don't appear in it.
+    Non-unique words (i.e., words that show up under the dictionaries for
+    multiple languages) are ignored.
+    """
+    if len(tokenised) == 0:
+        return 0
 
+    yes = 0
+    no = 0
+    for token in tokenised:
+        if word_in_dictionary(token, language):
+            if word_in_dictionary_unique(token, language):
+                yes += 1
+        else:
+            no += 1
+    rounded = "{:.{precision}f}".format(yes / (yes + no), precision=precision)
+    return float(rounded)
+
+
+def add_binary_portion_language(featureset, tokenised, precision, language):
     # Step 0: Get the actual portion
-    portion = portion_language(tokenised, precision, language)
+    portion = portion_spelling_language(tokenised, precision, language)
 
     # Step 1: Find all the precision steps
     steplist = [n / (10 ** precision) for n in range(1, 10 ** precision + 1)]
     for step in steplist:
         if portion < step:
             featureset[language + "_at_least_" + str(step)] = False
-            # featureset[language + "_less_than_" + str(step)] = True
         else:
             featureset[language + "_at_least_" + str(step)] = True
-            # featureset[language + "_less_than_" + str(step)] = False
+    return featureset
+
+
+def add_binary_portion_language_unique(featureset, tokenised, precision, language):
+    # Step 0: Get the actual portion
+    portion = portion_spelling_language_unique(tokenised, precision, language)
+
+    # Step 1: Find all the precision steps
+    steplist = [n / (10 ** precision) for n in range(1, 10 ** precision + 1)]
+    for step in steplist:
+        if portion < step:
+            featureset[language + "_at_least_" + str(step)] = False
+        else:
+            featureset[language + "_at_least_" + str(step)] = True
     return featureset
 
 
@@ -293,7 +344,7 @@ def check_pinyin(word):
         return False
 
     # Step 4: Check it against our other dictionaries; better safe than sorry?
-    for language in dictionary_list:
+    for language in spelling_dictionaries.keys():
         if word_in_dictionary(word, language):
             logger.debug("Found '" + word + "' in dictionary: " + language)
             return False
@@ -309,14 +360,6 @@ def has_pinyin(tokenised):
 
 
 # === Singlish ===
-def has_sge_words(tokenised):
-    for token in tokenised:
-        for sge_list in sge_lists:
-            if sge_list.check(token):
-                return True
-    return False
-
-
 def has_z_ending_word(tokenised):
     for token in tokenised:
         if token.endswith('z'):
