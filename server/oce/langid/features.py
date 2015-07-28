@@ -12,7 +12,8 @@ import oce.logger
 logger = oce.logger.getLogger(__name__)
 
 # === Config ===
-from oce.config import sge_words, sge_chinese_derived_words
+from oce.config import sge_words
+from oce.config import sge_chinese_derived_words, sge_malay_derived_words
 from oce.config import valid_pinyin
 
 # === Spellcheckers ===
@@ -33,14 +34,15 @@ for language in spelling_languages.keys():
         spelling_dictionaries[language][variant] = enchant.Dict(variant)
 # --- SgE word lists ---
 spelling_dictionaries["sge"] = {}
-sge_lists = sge_words + sge_chinese_derived_words
+sge_lists = sge_words + sge_chinese_derived_words + sge_malay_derived_words
 for wordlist in sge_lists:
     spelling_dictionaries["sge"][wordlist] = enchant.request_pwl_dict(wordlist)
 # --- Additional word list handling ---
 # Count Chinese-derived words in SgE as Chinese
 for wordlist in sge_chinese_derived_words:
     spelling_dictionaries["zh"][wordlist] = enchant.request_pwl_dict(wordlist)
-
+for wordlist in sge_malay_derived_words:
+    spelling_dictionaries["ms"][wordlist] = enchant.request_pwl_dict(wordlist)
 
 def extract_features(sentence):
     tokenised = tokenise(sentence)

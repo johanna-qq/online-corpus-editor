@@ -34,6 +34,8 @@ default_trained_file = "data/" + default_model + "-trained.pickle"
 # English tokens
 sge_chinese_derived_words = ["data/sge-chinese-derived-discourse-particles.txt",
                              "data/sge-chinese-derived-common-words.txt"]
+sge_malay_derived_words = ["data/sge-malay-derived-discourse-particles.txt",
+                           "data/sge-malay-derived-common-words.txt"]
 sge_words = ["data/sge-discourse-particles.txt",
              "data/sge-common-words.txt"]
 
