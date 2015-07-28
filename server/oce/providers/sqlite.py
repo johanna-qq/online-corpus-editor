@@ -56,10 +56,8 @@ class SQLiteProvider(DataProvider):
         return [row.dictionary for row in self.session.query(Records).filter(
             Records.rowid.between(first, last)).order_by(Records.rowid)]
 
-    def fetch_search_results(self, query, offset, limit):
+    def fetch_search_results(self, query, offset=0, limit=0):
         start_time = timeit.default_timer()
-
-        search = self.session.query(RecordsFTS)
 
         # Pre-process the query
 
@@ -74,26 +72,39 @@ class SQLiteProvider(DataProvider):
         # special commands
         query, return_query = self._process_query(query)
 
-        # Bind the FTS search
-        # TODO: Use only docid for subquery with LIMIT -- Prevents loading
-        # everything to memory
-        filter_string = RecordsFTS.__tablename__ + " MATCH :text"
-        search = search.filter(sqlalchemy.sql.expression.text(
-            filter_string)).params(
-            text=query) \
-            .order_by(RecordsFTS.docid)
-
         logger.info("Searching for '{0}'.".format(query))
 
-        # Try the actual search
         try:
+            # Prepare the FTS subquery: We'll only select docid to prevent
+            # loading everything to memory (docid can be taken straight from
+            # the FTS index)
+            # Rough benchmarking -- Search times for query "a*"
+            # 1) Ordering on `rowid` instead of `docid`: 21.986s
+            # 2) Ordering on `docid` but without limiting subquery: 7.049s
+            # 3) Ordering on `docid` with limited subquery: 3.538s
+            search = self.session.query(RecordsFTS.docid)
+            filter_string = RecordsFTS.__tablename__ + " MATCH :text"
+            search = search.filter(
+                sqlalchemy.sql.expression.text(filter_string)
+            ).params(
+                text=query
+            ).order_by(RecordsFTS.docid)
+
             count = search.count()
+
+            if offset > 0:
+                search = search.offset(offset)
             if limit > 0:
-                sliced = search.slice(offset,
-                                      offset + limit)
-                results = [row.dictionary for row in sliced]
-            else:
-                results = [row.dictionary for row in search]
+                search = search.limit(limit)
+            search = search.subquery()
+
+            # And now the main query
+            main = self.session.query(Records) \
+                .join(search, Records.rowid == search.c.docid) \
+                .order_by(Records.rowid)
+
+            results = [row.dictionary for row in main]
+
             elapsed = "{:.3f}".format(timeit.default_timer() - start_time)
             return {'total': count, 'results': results, 'query': return_query,
                     'elapsed': elapsed, 'offset': offset}
@@ -140,8 +151,7 @@ class SQLiteProvider(DataProvider):
     # ===============
     # Private helpers
     # ===============
-    @staticmethod
-    def _process_query(query):
+    def _process_query(self, query):
         query_words = query.split()
         query = ''
         return_query = ''
