@@ -25,7 +25,8 @@ Examples of named entities.
 
 ### Lexical
 
-English terms used differently in Singapore English.
+English terms used differently in Singapore English,
+or Singaporean English terms with no clear origin in another language.
 
 > (6350) "@USERNAME EH HAHAHAHA *ANYHOW* *ONLY*"
 
@@ -95,6 +96,7 @@ Special tags for copula-related phenomenon.
 ### ProDrop, ProDropObject
 
 Instances of pro-drop (generally subject pro-drop).
+Does not include subject pro-drop in English imperatives.
 
 > (3527) "... haha *[you]* want see me botak ah? ..."
 
