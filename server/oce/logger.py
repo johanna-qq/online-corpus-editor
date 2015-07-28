@@ -8,6 +8,7 @@ import sys
 # === Top-level Config ===
 from oce.config import log_level
 
+
 def get_gmt8(timestamp):
     """
     Returns a struct_time for the given time in SGT (GMT+8)
@@ -20,6 +21,7 @@ def get_gmt8(timestamp):
 
 def getLogger(name):
     return logging.getLogger(name)
+
 
 # On import/reload, (re-)configure the root logger, which will propagate to
 # subsequent logger calls
@@ -37,12 +39,15 @@ formatter = logging.Formatter(
 formatter.converter = get_gmt8
 formatter.datefmt = '%Y-%m-%d %H:%M:%S'
 
+
 class AsciiStreamHandler(logging.StreamHandler):
     def emit(self, record):
         record.msg = record.msg.encode('ascii', 'xmlcharrefreplace').decode()
         super().emit(record)
 
-# For Windows systems, the default command prompt does not like printing unicode characters.
+
+# For Windows systems, the default command prompt does not like printing unicode
+# characters.
 if sys.platform.startswith("win32"):
     console_handler = AsciiStreamHandler()
 else:
@@ -54,6 +59,6 @@ root_logger.addHandler(console_handler)
 # SQLAlchemy prints a lot of messages at the INFO level.
 logging.getLogger('sqlalchemy').setLevel(logging.WARN)
 
-# Websockets also prints a lot of messages (including the contents of every frame)
-# at the DEBUG level.
+# Websockets also prints a lot of messages (including the contents of every
+# frame) at the DEBUG level.
 logging.getLogger('websockets.protocol').setLevel(logging.INFO)

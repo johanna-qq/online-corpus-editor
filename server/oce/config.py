@@ -1,8 +1,27 @@
 # Online Corpus Editor
 # Language Identification: Configuration
 
+# ---------
+# Databases
+# ---------
+
+# Name of the base table in the corpus database
+# From here, data providers may also expect to find:
+#   <main_table>_fts    - Full-text search table
+#   <main_table>_count  - Count of the total number of records in the corpus
+#   <main_table>_tags   - User tags used
+main_table = "tweets"
+
+# -----------
+# Development
+# -----------
+
 # Console logger message level
 log_level = "debug"
+
+# -----------------------
+# Language Identification
+# -----------------------
 
 # NLTK classifier model to use
 default_model = "maxent"
@@ -13,8 +32,11 @@ default_trained_file = "data/" + default_model + "-trained.pickle"
 # PyEnchant Personal Word List file(s) for Singapore English
 # Each file contains words (one per line) to identify as Singapore
 # English tokens
+sge_chinese_derived_words = ["data/sge-chinese-derived-discourse-particles.txt",
+                             "data/sge-chinese-derived-common-words.txt"]
 sge_words = ["data/sge-discourse-particles.txt",
              "data/sge-common-words.txt"]
+
 
 # Valid combinations of initials and finals for pinyin (excluding tone
 # marks/number suffixes)
@@ -118,5 +140,6 @@ def tabulate_pinyin():
         table[initial].append("ve")
 
     return table
+
 
 valid_pinyin = tabulate_pinyin()

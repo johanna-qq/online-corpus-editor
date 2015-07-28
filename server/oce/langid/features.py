@@ -7,12 +7,12 @@ import string
 import enchant
 import nltk
 
-import oce
+import oce.logger
 
-logger = oce.getLogger(__name__)
+logger = oce.logger.getLogger(__name__)
 
 # === Config ===
-from oce.config import sge_words
+from oce.config import sge_words, sge_chinese_derived_words
 from oce.config import valid_pinyin
 
 # === Spellcheckers ===
@@ -20,8 +20,10 @@ enchant.set_param("enchant.myspell.dictionary.path", "./lib/dict")
 # --- Languages and minor variants ---
 spelling_languages = {
     "en": ["en_US-large", "en_GB-large"],
-    "ms": ["ms_MY"]
-    # "sge" handled with personal word lists below
+    "ms": ["ms_MY"],
+    "sge": [],
+    "zh": []
+    # "sge" and "zh" handled with personal word lists below
 }
 # --- Corresponding dictionaries ---
 spelling_dictionaries = {}
@@ -31,8 +33,13 @@ for language in spelling_languages.keys():
         spelling_dictionaries[language][variant] = enchant.Dict(variant)
 # --- SgE word lists ---
 spelling_dictionaries["sge"] = {}
-for wordlist in sge_words:
+sge_lists = sge_words + sge_chinese_derived_words
+for wordlist in sge_lists:
     spelling_dictionaries["sge"][wordlist] = enchant.request_pwl_dict(wordlist)
+# --- Additional word list handling ---
+# Count Chinese-derived words in SgE as Chinese
+for wordlist in sge_chinese_derived_words:
+    spelling_dictionaries["zh"][wordlist] = enchant.request_pwl_dict(wordlist)
 
 
 def extract_features(sentence):
@@ -42,14 +49,19 @@ def extract_features(sentence):
     ## Primary features
     # Chinese
     features["has_zh_chars"] = has_zh_chars(sentence)
-    features["has_pinyin"] = has_pinyin(tokenised)
+    features["has_pinyin"] = has_pinyin(tokenised_spellcheck)
+    features["has_spelling_zh"] = has_spelling_language(tokenised_spellcheck,
+                                                        "zh")
     # Singlish
-    features["has_spelling_sge"] = has_spelling_language(tokenised_spellcheck, "sge")
+    features["has_spelling_sge"] = has_spelling_language(tokenised_spellcheck,
+                                                         "sge")
     features["has_z_ending_word"] = has_z_ending_word(tokenised)
     # English
-    features["has_spelling_en"] = has_spelling_language(tokenised_spellcheck, "en")
+    features["has_spelling_en"] = has_spelling_language(tokenised_spellcheck,
+                                                        "en")
     # Malay
-    features["has_spelling_ms"] = has_spelling_language(tokenised_spellcheck, "ms")
+    features["has_spelling_ms"] = has_spelling_language(tokenised_spellcheck,
+                                                        "ms")
 
     features = add_binary_portion_language(features, tokenised_spellcheck, 1,
                                            "en")
@@ -59,7 +71,8 @@ def extract_features(sentence):
     ## Consolidated features
     # Chinese
     features["has_zh"] = (features["has_zh_chars"] or
-                          features["has_pinyin"])
+                          features["has_pinyin"] or
+                          features["has_spelling_zh"])
     # Singlish
     features["has_sge"] = (features["has_spelling_sge"] or
                            features["has_z_ending_word"])
@@ -115,7 +128,8 @@ def tokenise(sentence):
     tokenised = temp
 
     # Remove punctuation, then whitespace.
-    tokenised = [token.strip("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip() for token in tokenised]
+    tokenised = [token.strip("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~").strip() for
+                 token in tokenised]
 
     # Drop empty tokens and return
     return [token for token in tokenised if token != '']
@@ -124,8 +138,11 @@ def tokenise(sentence):
 def prep_tokens_for_spellcheck(tokenised):
     # Specific pre-processing steps needed for spellcheckers
 
-    # Drop non-printable characters
-    tokenised = [''.join([char for char in token if char in string.printable]) for token in tokenised]
+    # Drop non-printable characters and numerals
+    # (TBH, we should probably drop even more)
+    printable = set(string.printable) - set("0123456789")
+    tokenised = [''.join([char for char in token if char in printable])
+                 for token in tokenised]
 
     # Words to ignore, including the empty string
     blacklist = {""}
@@ -144,9 +161,13 @@ def word_in_dictionary(word, language):
     # Checks common variants of the word
     to_check = [word, word.upper(), word.lower(), word.title()]
 
-    for dictionary in dictionaries.values():
+    for lang_variant, dictionary in dictionaries.items():
         for variant in to_check:
             if dictionary.check(variant):
+                logger.debug(
+                    "Found '{0}' in dictionary: '{1}'".format(
+                        variant, lang_variant)
+                )
                 return True
     return False
 
@@ -156,7 +177,8 @@ def word_in_dictionary_unique(word, main_language):
     Returns true only if the given word does *not* show up in any of the other dictionaries loaded
     Dictionaries are grouped by family (so, for example, en_GB and en_US don't cancel each other out here)
     """
-    other_languages = [lang for lang in spelling_dictionaries.keys() if lang != main_language]
+    other_languages = [lang for lang in spelling_dictionaries.keys() if
+                       lang != main_language]
 
     # Step 1: Is the word even in the specified dictionary?
     if not word_in_dictionary(word, main_language):
@@ -172,6 +194,10 @@ def word_in_dictionary_unique(word, main_language):
 def has_spelling_language(tokenised, language):
     for token in tokenised:
         if word_in_dictionary(token, language):
+            logger.debug(
+                "Found word '{0}' for language: {1}".format(
+                    token, language)
+            )
             return True
     return False
 
@@ -179,6 +205,10 @@ def has_spelling_language(tokenised, language):
 def has_spelling_language_unique(tokenised, language):
     for token in tokenised:
         if word_in_dictionary_unique(token, language):
+            logger.debug(
+                "Found unique word '{0}' for language: {1}".format(
+                    token, language)
+            )
             return True
     return False
 
@@ -244,7 +274,8 @@ def add_binary_portion_language(featureset, tokenised, precision, language):
     return featureset
 
 
-def add_binary_portion_language_unique(featureset, tokenised, precision, language):
+def add_binary_portion_language_unique(featureset, tokenised, precision,
+                                       language):
     # Step 0: Get the actual portion
     portion = portion_spelling_language_unique(tokenised, precision, language)
 
@@ -280,75 +311,81 @@ def check_pinyin(word):
     :return:
     """
 
-    logger.debug("Checking for pinyin: " + word)
+    # logger.debug("Checking for pinyin: " + word)
 
     # Step 0: See if it is one of a few exceptions without an initial:
     # a, o, e, ai, ei, ao, ou, an, ang, en, eng
     pattern = r"a(([io]|ng?)?|ou?|e(i|ng?)?)$"
     if re.match(pattern, word) is not None:
         logger.debug("'" + word + "' looks like valid pinyin. (No initial)")
-        return True
-
-    # Step 1: Parse initial/final
-    pattern = r"([bpmfdtnlgkhrjqxwy]|[zcs]h?)(.*)"
-    match = re.match(pattern, word)
-    if match is None:
-        logger.debug("Initial was not valid: " + word)
-        return False
-    initial = match.group(1)
-    final = match.group(2)
-    logger.debug("Initial: " + initial + "; Final: " + final)
-
-    # Step 2: Check final
-    # a, ai, ao, an, ang
-    a_pattern = r"a([io]|ng?)?"
-    # o, ou, ong
-    o_pattern = r"o(u|ng)?"
-    # e, ei, en, eng
-    e_pattern = r"e(i|ng?)?"
-    # u, ua, uo, uai, ui, uan, uang, un, ueng*
-    # *: romanised as w + eng
-    u_pattern = r"u(a(i|ng?)?|o|i|n)?"
-    # i, ia, ie, iao, iu, ian, iang, in, ing, iong
-    i_pattern = r"i(a(o|ng?)?|e|u|ng?|ong)?"
-    # v, ve
-    v_pattern = r"ve?"
-
-    # Final may end with a tone number (liberally, 0-5 including light tone)
-    final = final.rstrip("012345")
-    if final.startswith("a"):
-        pattern = a_pattern
-    elif final.startswith("o"):
-        pattern = o_pattern
-    elif final.startswith("e"):
-        pattern = e_pattern
-    elif final.startswith("u"):
-        pattern = u_pattern
-    elif final.startswith("i"):
-        pattern = i_pattern
-    elif final.startswith("v"):
-        pattern = v_pattern
     else:
-        logger.debug("Final was not valid: " + word)
-        return False
+        # Step 1: Parse initial/final
+        pattern = r"([bpmfdtnlgkhrjqxwy]|[zcs]h?)(.*)"
+        match = re.match(pattern, word)
+        if match is None:
+            # logger.debug("Initial was not valid: " + word)
+            return False
+        initial = match.group(1)
+        final = match.group(2)
+        # logger.debug("Initial: " + initial + "; Final: " + final)
 
-    if re.match(pattern, final) is None:
-        logger.debug("Final was not valid: " + word)
-        return False
+        # Step 2: Check final
+        # a, ai, ao, an, ang
+        a_pattern = r"a([io]|ng?)?"
+        # o, ou, ong
+        o_pattern = r"o(u|ng)?"
+        # e, ei, en, eng
+        e_pattern = r"e(i|ng?)?"
+        # u, ua, uo, uai, ui, uan, uang, un, ueng*
+        # *: romanised as w + eng
+        u_pattern = r"u(a(i|ng?)?|o|i|n)?"
+        # i, ia, ie, iao, iu, ian, iang, in, ing, iong
+        i_pattern = r"i(a(o|ng?)?|e|u|ng?|ong)?"
+        # v, ve
+        v_pattern = r"ve?"
 
-    # Step 3: See if initial and final are compatible
-    if final in valid_pinyin[initial]:
-        logger.debug("'" + word + "' looks like valid pinyin.")
-    else:
-        logger.debug("Initial-Final combination was not valid: " + word)
-        return False
-
-    # Step 4: Check it against our other dictionaries; better safe than sorry?
-    for language in spelling_dictionaries.keys():
-        if word_in_dictionary(word, language):
-            logger.debug("Found '" + word + "' in dictionary: " + language)
+        # Final may end with a tone number (liberally, 0-5 including light tone)
+        final = final.rstrip("012345")
+        if final.startswith("a"):
+            pattern = a_pattern
+        elif final.startswith("o"):
+            pattern = o_pattern
+        elif final.startswith("e"):
+            pattern = e_pattern
+        elif final.startswith("u"):
+            pattern = u_pattern
+        elif final.startswith("i"):
+            pattern = i_pattern
+        elif final.startswith("v"):
+            pattern = v_pattern
+        else:
+            # logger.debug("Final was not valid: " + word)
             return False
 
+        if re.match(pattern, final) is None:
+            # logger.debug("Final was not valid: " + word)
+            return False
+
+        # Step 3: See if initial and final are compatible
+        if final in valid_pinyin[initial]:
+            logger.debug("'" + word + "' looks like valid pinyin.")
+        else:
+            # logger.debug("Initial-Final combination was not valid: " + word)
+            return False
+
+    # Step 4: Check it against our other dictionaries; better safe than sorry?
+    # We expect to see pinyin for 'zh' and 'sge' records
+    other_languages = [x for x in spelling_dictionaries.keys()
+                       if x != 'zh' and x != 'sge']
+    for language in other_languages:
+        if word_in_dictionary(word, language):
+            logger.debug(
+                "... But found '{0}' in dictionary: {1}".format(word, language)
+            )
+            return False
+
+    # Step 5: Our word didn't fail on any of the short circuit checks; take it
+    # as valid pinyin
     return True
 
 

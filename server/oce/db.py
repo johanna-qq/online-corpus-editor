@@ -9,9 +9,10 @@ import sqlalchemy.ext.declarative
 
 import re
 import timeit
-import logging
 
-logger = logging.getLogger(__name__)
+import oce.logger
+
+logger = oce.logger.getLogger(__name__)
 
 
 class DB:
@@ -493,8 +494,7 @@ class Records(Base):
 
 
 class RecordCount(Base):
-    # __tablename__ = MAIN_TABLE + 'count'
-    __tablename__ = 'tweetcount'
+    __tablename__ = MAIN_TABLE + '_count'
     count = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
 
 

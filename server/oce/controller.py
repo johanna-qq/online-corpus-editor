@@ -6,8 +6,12 @@ import urllib.parse
 import oce.ws
 import oce.db
 import oce.langid
+import oce.logger
+import oce.util
+import oce.providers
+import oce.providers.util
 
-logger = oce.getLogger(__name__)
+logger = oce.logger.getLogger(__name__)
 
 
 def init(sqlite=None, ws=None):
@@ -56,7 +60,8 @@ class Act:  # Hurr hurr
         logger.info("Initialising system components...")
 
         # Initialise DB connection
-        self.db = oce.db.DB(db_file)
+        # self.db = oce.db.DB(db_file)
+        self.db = oce.providers.SQLiteProvider(db_file)
 
         # Run any ad hoc DB commands
         self.db.debug()
@@ -128,7 +133,13 @@ class Act:  # Hurr hurr
         }
 
     def exec_meta(self, request):
-        return self.db.fetch_meta()
+        total = self.db.fetch_total()
+        tags = self.db.fetch_tags()
+
+        return {
+            'total': total,
+            'tags': tags
+        }
 
     def exec_update(self, request):
         return self.db.update_record(request['rowid'], request['field'],
@@ -178,7 +189,8 @@ class Act:  # Hurr hurr
         # Normalise case + sort + save language labels in case it wasn't done
         # earlier.
         for i, datum in enumerate(raw_data):
-            normalised = self.db.normalise_language(datum['language'])
+            normalised = oce.providers.util.langid_normalise_language(
+                datum['language'])
             if normalised != datum['language']:
                 self.db.update_record(datum['rowid'], 'language', normalised)
             raw_data[i]['language'] = normalised
@@ -193,6 +205,25 @@ class Act:  # Hurr hurr
             # Something failed
             return False
 
+    @langid_function
+    def exec_find_features(self, feature_name):
+        """
+        Finds all language-tagged records in the corpus which match a certain
+        classifier feature
+        """
+        labelled = self.db.fetch_search_results('has:language', 0, 0)
+        raw_data = labelled['results']
+        for datum in raw_data:
+            if self.langid.extract_features(datum['content'])[feature_name]:
+                logger.debug(
+                    "Record {0} matches '{1}': {2}.\nLabel is {3}".format(
+                        datum['rowid'],
+                        feature_name,
+                        datum['content'],
+                        datum['language']
+                    )
+                )
+
     def exec_restart(self, request=None):
         """
         We're still within one of conn's coroutines -- Raise the interrupt
@@ -200,7 +231,7 @@ class Act:  # Hurr hurr
         :param request:
         :return:
         """
-        raise oce.RestartInterrupt
+        raise oce.util.RestartInterrupt
 
     def exec_shutdown(self, request=None):
         """
@@ -224,7 +255,8 @@ class Act:  # Hurr hurr
                 readline.parse_and_bind("tab: complete")
         except ImportError:
             # On Windows, probably
-            print("Could not load 'readline' module (probably on Win32): Tab completion will not work.")
+            print(
+                "Could not load 'readline' module (probably on Win32): Tab completion will not work.")
 
         import code
 

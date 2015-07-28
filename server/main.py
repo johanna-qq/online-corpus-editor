@@ -32,20 +32,15 @@ import argparse
 import os
 import sys
 
-import oce
-# This is a lazy-load; only the following are available:
-# Methods: .init, .reload, .getLogger
-# Classes: RestartInterrupt, ShutdownInterrupt, CustomError
-
 # =============
 # Configuration
 # =============
 default_ws_port = 8081
 default_sqlite_db = 'data/sge_tweets.db'
 
-# ==============
-# Managing paths
-# ==============
+# ===============
+# Path management
+# ===============
 sys.path.insert(1, os.path.join(os.getcwd(), "lib"))
 
 # ================
@@ -69,7 +64,11 @@ args = parser.parse_args()
 # ====
 # Init
 # ====
-logger = oce.getLogger(__name__)
+import oce.loader
+import oce.logger
+import oce.util
+
+logger = oce.logger.getLogger(__name__)
 logger.info("=== Server starting up ===")
 
 # The server will reload itself if a user requests a restart.
@@ -77,12 +76,14 @@ logger.info("=== Server starting up ===")
 quit_flag = False
 while not quit_flag:
     try:
-        oce.init(sqlite=args.sqlite, ws=args.ws)
-    except oce.RestartInterrupt:
+        oce.loader.init(sqlite=args.sqlite, ws=args.ws)
+    except oce.util.RestartInterrupt:
         logger.info("=== Server restarting ===")
-        oce.reload()
-        continue
-    except oce.ShutdownInterrupt:
+        # Reload the loader, then let the loader reload everything else
+        import importlib
+        importlib.reload(oce.loader)
+        oce.loader.reload()
+    except oce.util.ShutdownInterrupt:
         logger.info("=== Server shutting down ===")
         quit_flag = True
     except Exception as e:
