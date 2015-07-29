@@ -382,7 +382,7 @@ def check_pinyin(word):
     for language in other_languages:
         if word_in_dictionary(word, language):
             logger.debug(
-                "... But found '{0}' in dictionary: {1}".format(word, language)
+                "... But found '{0}' for language: {1}".format(word, language)
             )
             return False
 

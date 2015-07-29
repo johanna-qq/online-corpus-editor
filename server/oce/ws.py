@@ -69,6 +69,9 @@ class Conn:
 
     @asyncio.coroutine
     def shutdown(self):
+        """
+        Called one level up (by the main controller)
+        """
         # Kick all clients
         if len(self.handlers) > 0:
             logger.info("Kicking connected clients...")
@@ -213,8 +216,7 @@ class Conn:
             while True:
                 msg = yield from out_queue.get()
                 msg = json.dumps(msg)
-                msg_preview = msg[0:80] \
-                    .encode('ascii', 'xmlcharrefreplace').decode()
+                msg_preview = msg[0:80]
                 msg = base64.b64encode(zlib.compress(msg.encode())).decode()
 
                 if not websocket.open:

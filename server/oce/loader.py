@@ -16,6 +16,10 @@ load_order = [
     "oce.providers.template",
     "oce.providers.sqlite",
     "oce.providers",
+    # Interfaces
+    "oce.interfaces.template",
+    "oce.interfaces.websocket",
+    "oce.interfaces",
     # Language ID
     "oce.langid.langid",
     "oce.langid.features",

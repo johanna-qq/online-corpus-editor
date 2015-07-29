@@ -28,6 +28,7 @@ RecordTags = SQLAlchemyORM.RecordTags
 class SQLiteProvider(DataProvider):
     # Startup/Shutdown
     def __init__(self, address):
+        super().__init__(address)
         self.db_file = address
         self.engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
         self.session = sqlalchemy.orm.sessionmaker(bind=self.engine)()
@@ -110,7 +111,7 @@ class SQLiteProvider(DataProvider):
                     'elapsed': elapsed, 'offset': offset}
         except sqlalchemy.exc.SQLAlchemyError as e:
             # Whoops.
-            print(e)
+            logger.error(e)
             return {'total': 0, 'results': 'error'}
 
     # Modification
@@ -145,7 +146,7 @@ class SQLiteProvider(DataProvider):
             return 'success'
         except sqlalchemy.exc.SQLAlchemyError as e:
             # Uh oh.
-            print(e)
+            logger.error(e)
             return 'error'
 
     # ===============
@@ -157,11 +158,13 @@ class SQLiteProvider(DataProvider):
         return_query = ''
 
         # If all the search terms are negative, we'll force a full table scan
+        # (SQLite FTS does not support searching for only negative terms)
         found_positive = False
 
         for word in query_words:
             # The FTS engine doesn't care about case, except where the word is
-            # one of the query syntax keywords
+            # one of the query syntax keywords, which should always be in
+            # uppercase
             if word != "OR" and word != "AND" and word != "NOT":
                 word = word.lower()
 

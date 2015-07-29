@@ -1,6 +1,7 @@
 # Online Corpus Editor
 # Utility Classes
 
+
 class RestartInterrupt(Exception):
     """
     Server Restart

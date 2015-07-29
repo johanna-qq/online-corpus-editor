@@ -25,7 +25,6 @@ def warn_undefined(func):
 
 class DataProvider:
     # Startup/Shutdown
-    @warn_undefined
     def __init__(self, address):
         """
         Given an identifier for the DB resource, prepare the data provider
