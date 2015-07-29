@@ -8,6 +8,7 @@ import sqlalchemy.sql.expression
 import sqlalchemy.exc
 
 import re
+import sqlite3
 import timeit
 
 import oce.logger
@@ -30,6 +31,21 @@ class SQLiteProvider(DataProvider):
     def __init__(self, address):
         super().__init__(address)
         self.db_file = address
+
+        # Figure out whether our SQLite supports the FTS Enhanced Query Syntax
+        # (Although it almost definitely should, considering we bundle SQLite)
+        self.enhanced_query_syntax = False
+        compile_options = (sqlite3
+                           .connect(':memory:')
+                           .cursor()
+                           .execute("PRAGMA compile_options")
+                           .fetchall()
+                           )
+        for option in compile_options:
+            if option[0] == "ENABLE_FTS3_PARENTHESIS":
+                self.enhanced_query_syntax = True
+
+        # Prep the ORM session
         self.engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
         self.session = sqlalchemy.orm.sessionmaker(bind=self.engine)()
         logger.info("SQLite data provider initialised -- No connections made "
@@ -153,6 +169,10 @@ class SQLiteProvider(DataProvider):
     # Private helpers
     # ===============
     def _process_query(self, query):
+        if self.enhanced_query_syntax:
+            # Maybe do something differently?
+            pass
+
         query_words = query.split()
         query = ''
         return_query = ''

@@ -29,6 +29,7 @@ versions elsewhere on the system.
 """
 
 import argparse
+import importlib
 import os
 import sys
 
@@ -59,7 +60,14 @@ parser.add_argument('-sqlite',
                     default=default_sqlite_db,
                     metavar='SQLITE_DB',
                     help='The path to the SQLite database file to use.')
-args = parser.parse_args()
+raw_args = parser.parse_args()
+
+# `args` will be passed as keyword arguments to the controller for
+# initialisation
+args = {
+    'sqlite': raw_args.sqlite,
+    'ws': raw_args.ws
+}
 
 # ====
 # Init
@@ -76,16 +84,20 @@ logger.info("=== Server starting up ===")
 quit_flag = False
 while not quit_flag:
     try:
-        oce.loader.init(sqlite=args.sqlite, ws=args.ws)
+        oce.loader.init(**args)
     except oce.util.RestartInterrupt:
-        logger.info("=== Server restarting ===")
+        logger.info("=== Restarting system ===")
         # Reload the loader, then let the loader reload everything else
-        import importlib
         importlib.reload(oce.loader)
         oce.loader.reload()
     except oce.util.ShutdownInterrupt:
-        logger.info("=== Server shutting down ===")
+        logger.info("=== Shutting down system ===")
         quit_flag = True
     except Exception as e:
-        logger.error("=== Server Error ===")
+        logger.error("<<< System Error >>>")
         raise
+    else:
+        # The server went down silently -- This shouldn't happen, but let's
+        # log it and leave the system down (in case of infinite loops etc.)
+        logger.warning("<<< Unexpected shutdown >>>")
+        quit_flag = True

@@ -1,6 +1,29 @@
-# Server functions
+"""
+Main system controller.
+
+Will initialise the data provider(s) and client-server interface(s) requested,
+and manage the main system event loop.
+"""
+
+# =============
+# Configuration
+# =============
+import oce.providers
+
+provider_classes = {
+    'sqlite': oce.providers.SQLiteProvider
+}
+
+import oce.interfaces
+
+interface_classes = {
+    'ws': oce.interfaces.WebsocketServer
+}
+
+# =============
 
 import asyncio
+from concurrent.futures import FIRST_COMPLETED
 import urllib.parse
 
 import oce.ws
@@ -8,15 +31,19 @@ import oce.db
 import oce.langid
 import oce.logger
 import oce.util
-import oce.providers
+
 import oce.providers.util
 
 logger = oce.logger.getLogger(__name__)
 
 
-def init(sqlite=None, ws=None):
-    actor = Act(sqlite, ws)
-    actor.start_ws_server()
+def init(**kwargs):
+    """
+    Initialises the controller and starts the main system loop.
+    """
+    actor = Act(**kwargs)
+    actor.start_loop()
+    # === No processing occurs past this point until the system loop stops ===
 
 
 # Decorator
@@ -56,34 +83,97 @@ class Act:  # Hurr hurr
     # ---------------------------
     # Initialisation and Shutdown
     # ---------------------------
-    def __init__(self, db_file, ws_port):
+    def __init__(self, **kwargs):
+        """
+        **kwargs should specify exactly one provider class and at least one
+        interface class.
+        """
         logger.info("Initialising system components...")
 
-        # Initialise DB connection
-        # self.db = oce.db.DB(db_file)
-        self.db = oce.providers.SQLiteProvider(db_file)
+        # Bring up data providers and server interfaces
+        self.provider = None
+        self.servers = []
+        for key, value in kwargs.items():
+            if key in provider_classes.keys():
+                if self.provider is None:
+                    self.provider = provider_classes[key](value)
+                else:
+                    raise oce.util.CustomError(
+                        "More than one data provider specified."
+                    )
+            elif key in interface_classes.keys():
+                # Interfaces also need to be passed our client de-/registration
+                # functions
+                server = interface_classes[key](value,
+                                                self.register_client,
+                                                self.deregister_client)
+                self.servers.append(server)
+            else:
+                raise oce.util.CustomError(
+                    "Invalid provider/interface: '{}'".format(key)
+                )
+        if self.provider is None:
+            raise oce.util.CustomError(
+                "No data provider specified."
+            )
+        if len(self.servers) == 0:
+            raise oce.util.CustomError(
+                "No interfaces specified."
+            )
 
-        # Run any ad hoc DB commands
-        self.db.debug()
+        # Client list - Servers will register their clients with us as they come
+        self.clients = []
+        # And when they do, this future will get resolved and recreated.
+        self.clients_changed = asyncio.Future()
 
-        # Initialise language detection module
-        self.langid = oce.langid.LangIDController()
+        # If any of our methods set this to False, the system gets punted back
+        # up to the main script. We should also raise a corresponding interrupt
+        # if it was a user-requested restart or shutdown.
+        self.stop_loop = False
 
-        # Initialise local WebSocket server on specified port
-        self.conn = oce.ws.Conn(ws_port, self.exec_command)
+    def start_loop(self):
+        loop = asyncio.get_event_loop()
+        while not self.stop_loop:
+            loop.run_until_complete(self.do_loop())
 
-        return
+    @asyncio.coroutine
+    def do_loop(self):
+        """
+        In each iteration of the loop, we:
 
-    def start_ws_server(self):
+          1) Watch all registered clients, grabbing the first bit of input to
+             come through.  If any new clients are registered, restart the
+             loop to include them too.
+          2) Process the input and send it back to the client
+          3) Set self.stop_loop if we we're done
+
+        The beauty of coroutines is that we are guaranteed synchronous setup
+        until we `yield from`, which blocks until something does happen (which
+        prevents our pseudo-infinite loop above from chewing up resources)
+        """
+
+        sub_watch_clients = []
+        # Schedule the client input watchers
+        for client in self.clients:
+            future = asyncio.Future()
+            asyncio.async(self._watch_client(future, client))
+            sub_watch_clients.append(future)
+        # And the watcher for new/lost clients
+        self.clients_changed = asyncio.Future()
+        sub_watch_clients.append(self.clients_changed)
+        watch_clients = asyncio.wait(sub_watch_clients,
+                                     return_when=FIRST_COMPLETED)
+
+        done = []
+        pending = []
         try:
-            self.conn.start_server()
-        # --- Now running in asyncio event loop; no further processing here ---
-        except (oce.util.RestartInterrupt, oce.util.ShutdownInterrupt):
-            # The server went down.  Shutdown all system components, then raise
-            # the exception to main so that the Act module itself can
-            # be reloaded (if a restart was requested).
-            self.shutdown()
-            raise
+            done, pending = yield from watch_clients
+        finally:
+            for task in done:
+                print(task)
+                print(task == self.clients_changed)
+                print(task.result())
+                print("-----")
 
     def shutdown(self):
 
@@ -100,6 +190,30 @@ class Act:  # Hurr hurr
         self.langid.shutdown()
         self.langid = None
         return
+
+    # ---------------------------
+    # Client interface management
+    # ---------------------------
+    def register_client(self, client):
+        self.clients.append(client)
+        self.clients_changed.set_result(True)
+
+    def deregister_client(self, client):
+        self.clients.remove(client)
+        self.clients_changed.set_result(True)
+
+    @asyncio.coroutine
+    def _watch_client(self, future, client):
+        """
+        Resolves the given future when the specified client provides some input.
+
+        The future will contain a reference to the client as well, so we know
+        exactly who gave us the input.
+        (We wouldn't get this information if we were waiting only on each
+        client's bare get_input_async())
+        """
+        message = yield from client.get_input_async()
+        future.set_result((client, message))
 
     # --------
     # Commands

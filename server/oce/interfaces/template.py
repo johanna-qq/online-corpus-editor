@@ -65,7 +65,7 @@ class ClientInterface:
         the controller.
         """
         # {
-        #     'command': command
+        #     'command': command,
         #     'other_params': other_params
         # }
         return
@@ -74,5 +74,11 @@ class ClientInterface:
     def put_output_async(self, msg):
         """
         A coroutine that sends the specified message to the client
+        The message will be a Dictionary that echoes the client's command and
+        sends the results as a sub-item
         """
+        # {
+        #     'command': command,
+        #     'data': results
+        # }
         return

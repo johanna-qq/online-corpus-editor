@@ -1,5 +1,5 @@
 """
-A client interface that uses websockets for communication
+A client-server interface that uses websockets for communication
 """
 import asyncio
 from concurrent.futures import FIRST_COMPLETED, CancelledError

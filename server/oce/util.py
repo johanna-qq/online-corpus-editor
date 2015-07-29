@@ -29,6 +29,7 @@ class ShutdownInterrupt(Exception):
 class CustomError(Exception):
     """
     For sending custom messages out of server processes via exceptions
+    (amongst other things)
     """
 
     def __init__(self, message, pre='', post=''):
