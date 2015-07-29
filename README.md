@@ -25,7 +25,7 @@ Install `npm`, `bower` and `grunt-cli`.
 
     $ npm install -g bower grunt-cli
 
-From the client directory, install the application dependencies:
+From the `client-alpha` directory, install the application dependencies:
 
     $ npm install
     $ bower install
@@ -40,7 +40,7 @@ Serve the `dist` folder with your favourite web server or `grunt serve:dist`
 
 ### Development
 
-From the client directory, start the development server:
+From the `client-alpha` directory, start the development server:
 
     $ grunt serve
 
