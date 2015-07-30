@@ -1,7 +1,7 @@
 /**
  * Online Corpus Editor
  * Zechy Wong
- * Last Modified: 26 June 2015
+ * Last Modified: 30 July 2015
  *
  * External Resources:
  * minEmoji     (https://github.com/rodrigopolo/minEmoji)
@@ -33,4 +33,5 @@ requirejs(["jquery"], function () {
  * v0.2:    Don't cache me, bro - Version-based cache busting introduced
  * v0.2.1:  Pako-pako - Compression of WebSocket frames
  * v0.2.2:  The Great Tagsby - Tagging works again
+ * v0.2.3:  Mind Your Language - Rudimentary language classification support
  */
