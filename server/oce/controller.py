@@ -5,9 +5,9 @@ Will initialise the data provider(s) and client-server interface(s) requested,
 and manage the main system event loop.
 """
 
-# =============
-# Configuration
-# =============
+# ===================================
+# Configuration: Providers/Interfaces
+# ===================================
 import oce.providers
 
 provider_classes = {
@@ -19,15 +19,12 @@ import oce.interfaces
 interface_classes = {
     'ws': oce.interfaces.WebsocketServer
 }
-
 # =============
 
 import asyncio
-from concurrent.futures import FIRST_COMPLETED
+from concurrent.futures import FIRST_COMPLETED, CancelledError
 import urllib.parse
 
-import oce.ws
-import oce.db
 import oce.langid
 import oce.logger
 import oce.util
@@ -112,6 +109,8 @@ class Act:  # Hurr hurr
                 raise oce.util.CustomError(
                     "Invalid provider/interface: '{}'".format(key)
                 )
+
+        # Make sure they're up
         if self.provider is None:
             raise oce.util.CustomError(
                 "No data provider specified."
@@ -121,20 +120,54 @@ class Act:  # Hurr hurr
                 "No interfaces specified."
             )
 
+        # Lang ID module
+        self.langid = oce.langid.LangIDController()
+
         # Client list - Servers will register their clients with us as they come
         self.clients = []
         # And when they do, this future will get resolved and recreated.
         self.clients_changed = asyncio.Future()
+        # So that we can watch them for input
+        # This is a list of tuples: (ClientInterface, Future)
+        self.client_watch = []
 
-        # If any of our methods set this to False, the system gets punted back
-        # up to the main script. We should also raise a corresponding interrupt
-        # if it was a user-requested restart or shutdown.
-        self.stop_loop = False
+    def shutdown(self):
 
+        logger.info("Shutting down client watchers...")
+        for x in self.client_watch:
+            x[1].cancel()
+            asyncio.get_event_loop().run_until_complete(x[1])
+
+        logger.info("Shutting down interfaces...")
+        # The connection manager uses coroutines
+        for server in self.servers:
+            asyncio.get_event_loop().run_until_complete(server.shutdown())
+        self.servers = []
+
+        logger.info("Shutting down data provider...")
+        self.provider.shutdown()
+        self.provider = None
+
+        logger.info("Shutting down langid module...")
+        self.langid.shutdown()
+        self.langid = None
+
+    # ----------
+    # Event Loop
+    # ----------
     def start_loop(self):
         loop = asyncio.get_event_loop()
-        while not self.stop_loop:
-            loop.run_until_complete(self.do_loop())
+        try:
+            while True:
+                # N.B.: If running from an interactive console, not that
+                # KeyboardInterrupt does NOT fully cancel the current iteration
+                # of do_loop() -- Old watchers will remain active, which might
+                # cause repeated operations and other subtle bugs.
+                loop.run_until_complete(self.do_loop())
+        except (oce.util.RestartInterrupt, oce.util.ShutdownInterrupt):
+            # We're going down
+            self.shutdown()
+            raise
 
     @asyncio.coroutine
     def do_loop(self):
@@ -152,58 +185,108 @@ class Act:  # Hurr hurr
         prevents our pseudo-infinite loop above from chewing up resources)
         """
 
-        sub_watch_clients = []
-        # Schedule the client input watchers
-        for client in self.clients:
-            future = asyncio.Future()
-            asyncio.async(self._watch_client(future, client))
-            sub_watch_clients.append(future)
-        # And the watcher for new/lost clients
-        self.clients_changed = asyncio.Future()
-        sub_watch_clients.append(self.clients_changed)
-        watch_clients = asyncio.wait(sub_watch_clients,
-                                     return_when=FIRST_COMPLETED)
+        # Watch new clients, stop watching dropped clients.
+        # self.client_watch is a list of tuples (ClientInterface, Future)
+        # that will be updated to represent all watched clients for this
+        # iteration of the loop.
+        watched_clients = []
+        watched_client_futures = []
+        for x in self.client_watch:
+            if x[0] not in self.clients:
+                # Goodbye
+                x[1].cancel()
+                yield from x[1]
+                continue
+            watched_clients.append(x[0])
+            watched_client_futures.append(x[1])
 
-        done = []
-        pending = []
-        try:
-            done, pending = yield from watch_clients
-        finally:
-            for task in done:
-                print(task)
-                print(task == self.clients_changed)
-                print(task.result())
-                print("-----")
+        unwatched_clients = [client for client in self.clients
+                             if client not in watched_clients]
+        for client in unwatched_clients:
+            # Hello
+            watched_clients.append(client)
+            watched_client_futures.append(
+                asyncio.async(self._watch_client(client))
+            )
 
-    def shutdown(self):
+        self.client_watch = [(watched_clients[x], watched_client_futures[x])
+                             for x in range(len(watched_clients))]
 
-        print("Shutting down connection manager...")
-        # The connection manager uses coroutines
-        asyncio.get_event_loop().run_until_complete(self.conn.shutdown())
-        self.conn = None
+        # Add the watcher for new/lost clients
+        # On completion, this future will return True.
+        # self.clients_changed will also be in the list of done tasks.
+        watched_client_futures.append(self.clients_changed)
 
-        print("Shutting down DB manager...")
-        self.db.shutdown()
-        self.db = None
+        # Begin the watch
+        shutdown_this_watch = False
+        restart_this_watch = False
+        logger.debug(
+            "Watcher: Watch begun. {} registered client(s).".format(
+                len(watched_clients)
+            )
+        )
+        client_watcher = asyncio.wait(watched_client_futures,
+                                      return_when=FIRST_COMPLETED)
+        done, _ = yield from client_watcher
 
-        print("Shutting down langid module...")
-        self.langid.shutdown()
-        self.langid = None
-        return
+        # Now deal with the ones which completed.
+        # We are NOT guaranteed to have only one completed task here,
+        # and we are NOT guaranteed that pending futures will stay
+        # incomplete before the watch ends.
+        for task in done:
+            if task == self.clients_changed:
+                logger.debug(
+                    "Watcher: Clients changed. "
+                    "Now have {} client(s).".format(
+                        len(self.clients)
+                    )
+                )
+                self.clients_changed = asyncio.Future()
+            else:
+                client, request = task.result()
+                logger.debug(
+                    "Watcher: Received client request: {}".format(
+                        str(request)[0:80]
+                    )
+                )
+                # Remove the watch here; a new future will be generated for
+                # this client by the next iteration of the loop
+                self.client_watch.remove((client, task))
+
+                # If the client wanted a shutdown or restart, hold the request
+                # until the end of the watch
+                try:
+                    return_message = self.exec_command(request)
+                    yield from client.put_output_async(return_message)
+                except oce.util.ShutdownInterrupt:
+                    shutdown_this_watch = True
+                except oce.util.RestartInterrupt:
+                    restart_this_watch = True
+
+        logger.debug(
+            "Watcher: Watch ended."
+        )
+
+        if shutdown_this_watch:
+            raise oce.util.ShutdownInterrupt
+        elif restart_this_watch:
+            raise oce.util.RestartInterrupt
 
     # ---------------------------
     # Client interface management
     # ---------------------------
     def register_client(self, client):
         self.clients.append(client)
-        self.clients_changed.set_result(True)
+        if not self.clients_changed.done():
+            self.clients_changed.set_result(True)
 
     def deregister_client(self, client):
         self.clients.remove(client)
-        self.clients_changed.set_result(True)
+        if not self.clients_changed.done():
+            self.clients_changed.set_result(True)
 
     @asyncio.coroutine
-    def _watch_client(self, future, client):
+    def _watch_client(self, client):
         """
         Resolves the given future when the specified client provides some input.
 
@@ -212,8 +295,14 @@ class Act:  # Hurr hurr
         (We wouldn't get this information if we were waiting only on each
         client's bare get_input_async())
         """
-        message = yield from client.get_input_async()
-        future.set_result((client, message))
+        try:
+            message = yield from client.get_input_async()
+            return client, message
+        except CancelledError:
+            logger.debug(
+                "_watch_client cancelled: We either lost the client or are "
+                "shutting down."
+            )
 
     # --------
     # Commands
@@ -239,16 +328,18 @@ class Act:  # Hurr hurr
     def exec_view(self, request):
         # Requested records with ID within specified range
         # Echoes target to the client (for asynchronous message handling)
-        records = self.db.fetch_records(request['start'], request['end'])
+        # TODO: This echo might not be necessary once the client starts using
+        # promises.
+        records = self.provider.fetch_records(request['start'], request['end'])
 
         return {
             'results': records,
             'record': request['record']
         }
 
-    def exec_meta(self, request):
-        total = self.db.fetch_total()
-        tags = self.db.fetch_tags()
+    def exec_meta(self, _):
+        total = self.provider.fetch_total()
+        tags = self.provider.fetch_tags()
 
         return {
             'total': total,
@@ -256,8 +347,9 @@ class Act:  # Hurr hurr
         }
 
     def exec_update(self, request):
-        return self.db.update_record(request['rowid'], request['field'],
-                                     request['value'])
+        return self.provider.update_record(request['rowid'],
+                                           request['field'],
+                                           request['value'])
 
     def exec_search(self, request):
         # Start by URL decoding
@@ -267,16 +359,14 @@ class Act:  # Hurr hurr
         limit = request['perpage']
         offset = (page - 1) * limit
 
-        return self.db.fetch_search_results(query, offset, limit)
+        return self.provider.fetch_search_results(query, offset, limit)
 
     @langid_function
     def exec_langid(self, request):
         """
         High-level manager for running language detection on a given record
-        :param rowid:
-        :return:
         """
-        record = self.db.fetch_record(request['rowid'])
+        record = self.provider.fetch_record(request['rowid'])
 
         # Do a quick sanity check on the classifier so that we can
         # exec_retrain if necessary.
@@ -290,7 +380,7 @@ class Act:  # Hurr hurr
         return [record['content'], suggested]
 
     @langid_function
-    def exec_retrain(self, request=None):
+    def exec_retrain(self, _):
         """
         High-level manager for retraining the language detection classifier
         :param request:
@@ -298,7 +388,7 @@ class Act:  # Hurr hurr
         """
         # Get all the currently labelled records from the corpus, send them over
         # to the feature extractor
-        labelled = self.db.fetch_search_results('has:language', 0, 0)
+        labelled = self.provider.fetch_search_results('has:language', 0, 0)
         raw_data = labelled['results']
         # Normalise case + sort + save language labels in case it wasn't done
         # earlier.
@@ -306,7 +396,8 @@ class Act:  # Hurr hurr
             normalised = oce.providers.util.langid_normalise_language(
                 datum['language'])
             if normalised != datum['language']:
-                self.db.update_record(datum['rowid'], 'language', normalised)
+                self.provider.update_record(datum['rowid'], 'language',
+                                            normalised)
             raw_data[i]['language'] = normalised
         labelled_data = self.langid.prepare_labelled_data(raw_data)
         training_set = [(self.langid.extract_features(s), l)
@@ -325,7 +416,7 @@ class Act:  # Hurr hurr
         Finds all language-tagged records in the corpus which match a certain
         classifier feature
         """
-        labelled = self.db.fetch_search_results('has:language', 0, 0)
+        labelled = self.provider.fetch_search_results('has:language', 0, 0)
         raw_data = labelled['results']
         for datum in raw_data:
             if self.langid.extract_features(datum['content'])[feature_name]:
@@ -338,22 +429,20 @@ class Act:  # Hurr hurr
                     )
                 )
 
-    def exec_restart(self, request=None):
+    def exec_restart(self, _):
         """
-        We're still within one of conn's coroutines -- Raise the interrupt
-        and deal with it higher
-        :param request:
-        :return:
+        We're within Act's looping mechanism -- Raise the interrupt to drop out
+        of the loop
         """
         raise oce.util.RestartInterrupt
 
-    def exec_shutdown(self, request=None):
+    def exec_shutdown(self, _):
         """
         Same as restart, but we're shutting down now
         """
         raise oce.util.ShutdownInterrupt
 
-    def exec_debug(self, request=None):
+    def exec_debug(self, _):
         """
         Starts an interactive console on the current Act object for debugging.
         """
@@ -370,7 +459,8 @@ class Act:  # Hurr hurr
         except ImportError:
             # On Windows, probably
             print(
-                "Could not load 'readline' module (probably on Win32): Tab completion will not work.")
+                "Could not load 'readline' module (probably on Win32): Tab "
+                "completion will not work.")
 
         import code
 
@@ -382,6 +472,6 @@ class Act:  # Hurr hurr
     # --------------
 
     def features_of_record(self, rowid):
-        record = self.db.fetch_record(rowid)
+        record = self.provider.fetch_record(rowid)
         features = self.langid.extract_features(record['content'])
         return features

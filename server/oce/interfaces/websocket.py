@@ -58,9 +58,14 @@ class WebsocketServer(ServerInterface):
         self.client_list = []
         self.handler_list = []
 
-        logger.info("Server starting on {}, port {}.".format(self.local_ip,
-                                                             self.port))
+        logger.info(
+            "Websocket server starting on {}, port {}.".format(self.local_ip,
+                                                               self.port)
+        )
         self.server = asyncio.get_event_loop().run_until_complete(self.server)
+        # === The server is now accepting connections, but will only respond
+        # === when the event loop is running
+        # === (The event loop is managed by the controller)
 
     @asyncio.coroutine
     def shutdown(self):
@@ -68,30 +73,29 @@ class WebsocketServer(ServerInterface):
         A coroutine that gracefully destroys the server
         """
         logger.info("Shutting down Websocket server...")
-        if len(self.handler_list) > 0:
+        if len(self.client_list) > 0:
             logger.info("Kicking connected Websocket clients...")
-            for handler in self.handler_list:
-                handler.cancel()
-            yield from asyncio.wait(self.handler_list)
+            for client in self.client_list:
+                asyncio.async(client.close())
+
+        # The handlers in handler_list only complete once their clients are
+        # completely closed and deregistered.
+        yield from asyncio.wait(self.handler_list)
 
         self.server.close()
         yield from self.server.wait_closed()
         logger.info("Websocket server shutdown complete.")
 
     @asyncio.coroutine
-    def _new_client_handler(self, websocket, path):
+    def _new_client_handler(self, websocket, _):
         """
-        Wraps _new_client_worker in a Task that can be cancelled and waited for
-        on server shutdown.
-        `path` is passed by the websockets module, but we don't use it here.
+        Wraps the new client worker in a Task so that we can track it.
+        `path` is passed as a second argument by the websockets module, but we
+        don't use it here.
         """
         handler = asyncio.async(self._new_client_worker(websocket))
         self.handler_list.append(handler)
-        try:
-            yield from handler
-        except CancelledError:
-            handler.cancel()
-            yield from handler
+        yield from asyncio.wait_for(handler, None)
 
     @asyncio.coroutine
     def _new_client_worker(self, websocket):
@@ -101,13 +105,9 @@ class WebsocketServer(ServerInterface):
         client = WebsocketClient(websocket)
         self.client_list.append(client)
         self.register_client(client)
-        try:
-            yield from client.communicate_until_closed()
-        except CancelledError:
-            client.close()
-            yield from client.communicate_until_closed()
-        self.client_list.remove(client)
+        yield from client.communicate_until_closed()
         self.deregister_client(client)
+        self.client_list.remove(client)
 
 
 class WebsocketClient(ClientInterface):
@@ -117,16 +117,14 @@ class WebsocketClient(ClientInterface):
         self.input_queue = asyncio.Queue()
         self.output_queue = asyncio.Queue()
 
-        self.main_task = None
-
     @asyncio.coroutine
     def close(self):
         """
         A coroutine that gracefully kicks the client
         """
-        if self.main_task is not None:
-            self.main_task.cancel()
-            yield from self.main_task
+        # Closing the websocket from the server side causes the infinite
+        # receiver loop to terminate naturally
+        yield from self.websocket.close()
 
     @asyncio.coroutine
     def get_input_async(self):
@@ -145,20 +143,19 @@ class WebsocketClient(ClientInterface):
 
     @asyncio.coroutine
     def communicate_until_closed(self):
-        # Bring up the communication coroutines and wait for them; if any one of
-        # them completes, it means the client is no longer active.
-        sub_tasks = [asyncio.async(self._receive_to_queue()),
-                     asyncio.async(self._send_from_queue())]
-        self.main_task = asyncio.wait(sub_tasks, return_when=FIRST_COMPLETED)
+        logger.info("[{}] New client.".format(self.websocket.remote_ip))
 
-        try:
-            done, pending = yield from self.main_task
-        except CancelledError:
-            # The client is being kicked
-            done = []
-            pending = sub_tasks
+        # Bring up the communication coroutines and wait for them.
+        # They all run infinite loops, so if any one of them completes, it
+        # means the client is no longer active.
+        communication_tasks = [asyncio.async(self._receive_to_queue()),
+                               asyncio.async(self._send_from_queue())]
+        done, pending = yield from asyncio.wait(communication_tasks,
+                                                return_when=FIRST_COMPLETED)
 
-        logger.info("[{}] Cleaning up client.".format(self.websocket.remote_ip))
+        logger.info(
+            "[{}] Cleaning up client...".format(self.websocket.remote_ip)
+        )
 
         for task in done:
             e = task.exception()
@@ -167,12 +164,10 @@ class WebsocketClient(ClientInterface):
                 # failing silently.
                 raise e
 
-        # Cancel all the other coroutines
+        # Cancel any hangers-on (viz., _send_from_queue())
         for task in pending:
             task.cancel()
-        yield from asyncio.wait(pending)
-
-        yield from self.websocket.close()
+            yield from task
 
         logger.info("[{}] Cleanup complete.".format(self.websocket.remote_ip))
 
@@ -197,16 +192,17 @@ class WebsocketClient(ClientInterface):
                         "(Could not parse JSON)".format(
                             self.websocket.remote_ip)
                     )
-                    # Leaving the loop kicks the client
-                    return
+                    break
+
                 yield from self.input_queue.put(msg)
                 logger.info("[{}] [RECV] {}".format(
                     self.websocket.remote_ip,
                     msg)
                 )
         except CancelledError:
-            logger.debug("[{}] Cancelling receiver...".format(
-                self.websocket.remote_ip)
+            logger.debug(
+                "[{}] CancelledError on receiver -- "
+                "Should not be happening.".format(self.websocket.remote_ip)
             )
 
     @asyncio.coroutine

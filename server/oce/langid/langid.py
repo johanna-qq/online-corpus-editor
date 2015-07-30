@@ -27,10 +27,11 @@ class LangIDController:
         self.classifier = self.load_classifier(trained_file)
         if self.classifier is not None:
             if not hasattr(self.classifier, 'model_name'):
-                logger.warning("The loaded classifier does not specify which model it "
-                               "uses; it could be different from the one expected.  "
-                               "Use .train_classifier() followed by .save_classifier() "
-                               "to overwrite it.")
+                logger.warning(
+                    "The loaded classifier does not specify which model it "
+                    "uses; it could be different from the one expected.  "
+                    "Use .train_classifier() followed by .save_classifier() "
+                    "to overwrite it.")
             elif self.classifier.model_name != model:
                 logger.warning("The model used by the loaded classifier (" +
                                self.classifier.model_name +
@@ -146,7 +147,6 @@ class LangIDController:
         classifier.show_most_informative_features(20)
 
     def shutdown(self):
-        logger.info("Saving trained classifier.")
         if self.check_classifier():
+            logger.info("Saving trained classifier...")
             self.save_classifier()
-        return

@@ -17,7 +17,8 @@ main_table = "tweets"
 # -----------
 
 # Console logger message level
-log_level = "debug"
+log_level = "info"
+# log_level = "debug"
 
 # -----------------------
 # Language Identification

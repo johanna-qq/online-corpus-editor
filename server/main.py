@@ -30,6 +30,7 @@ versions elsewhere on the system.
 
 import argparse
 import importlib
+import logging
 import os
 import sys
 
@@ -101,3 +102,8 @@ while not quit_flag:
         # log it and leave the system down (in case of infinite loops etc.)
         logger.warning("<<< Unexpected shutdown >>>")
         quit_flag = True
+
+# Reset the logger so that any final log messages use the basic handler
+root_logger = logging.getLogger()
+root_logger.handlers = []
+logging.basicConfig()
