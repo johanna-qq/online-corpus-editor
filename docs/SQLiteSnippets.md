@@ -39,6 +39,12 @@ CREATE VIRTUAL TABLE tweets_fts USING fts4(
 )
 ```
 
+When the FTS table is created for the first time, its index also needs to be initialised:
+
+```sql
+INSERT INTO tweets_fts(tweets_fts) VALUES('rebuild')
+```
+
 ### Trigger: After insert
 
 ```sql
