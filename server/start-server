@@ -2,4 +2,4 @@
 
 # LD_LIBRARY_PATH needs to be set before python is started.
 export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
-python3 main.py
+exec python3 main.py "$@"
