@@ -6,7 +6,10 @@ import logging
 import sys
 
 # === Top-level Config ===
-from oce.config import log_level
+import oce.config
+
+if oce.config.debug_mode:
+    log_level = "debug"
 
 
 def get_gmt8(timestamp):

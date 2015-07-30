@@ -16,6 +16,7 @@ logger = oce.logger.getLogger(__name__)
 
 # === Config ===
 from oce.config import default_model, default_trained_file
+from oce.config import debug_mode
 
 
 class LangIDController:
@@ -120,7 +121,8 @@ class LangIDController:
     def suggest_language(self, sentence):
         classifier = self.get_classifier()
         featureset = self.extract_features(sentence)
-        classifier.explain(featureset)
+        if debug_mode:
+            classifier.explain(featureset)
         return classifier.classify(featureset)
 
     def prepare_labelled_data(self, raw_data):
@@ -144,7 +146,8 @@ class LangIDController:
         :return:
         """
         classifier = self.get_classifier()
-        classifier.show_most_informative_features(20)
+        if debug_mode:
+            classifier.show_most_informative_features(20)
 
     def shutdown(self):
         if self.check_classifier():
