@@ -87,24 +87,27 @@
                         <p>Use <strong>category:</strong><i>&lt;n&gt;</i>,
                             <strong>comment:</strong><i>&lt;word&gt;</i>,
                             <strong>tag:</strong><i>&lt;tag&gt;</i> and
-                            <strong>language:</strong><i>&lt;language&gt;</i> to
+                            <strong>language:</strong><i>&lt;language&gt;</i> or
+                            <strong>lang:</strong><i>&lt;language&gt;</i> to
                             search for specific words within those
                             fields.</p>
 
                         <p>By default, the query will include all the search
                             terms provided - There is no need to explicitly
-                            insert '&' or 'and' between terms. To <em>exclude
-                            </em> search terms, use the <strong>-</strong>
-                            prefix; it goes <em>after</em> the colon for
-                            filters.</p>
+                            insert '&' or '<strong>AND</strong>' between terms.
+                            To <em>exclude</em> search terms, use the
+                            <strong>uppercase NOT</strong> operator.</p>
 
-                        <p>The uppercase <strong>OR</strong> operator can be
+                        <p>The <strong>uppercase OR</strong> operator can be
                             used to combine word, phrase, or filter
-                            queries; brackets are not supported.</p>
+                            queries; brackets may also be used to further
+                            customise the search string.</p>
+
                         <!-- <p>By default, Porter stemming is done on queries and results; use <i>stemming:off</i> to return only exact matches.</p> -->
-                        <p>For example, searching <i>millefuille OR "delicious
-                            burger" OR christmascakes
-                            comment:-tasty</i> will return records that contain
+
+                        <p>For example, searching <i>(millefuille OR "delicious
+                            burger" OR christmascakes) NOT comment:tasty</i>
+                            will return records that contain
                             any of the first three terms but do not
                             have the word <i>tasty</i> in their comments.</p>
                     </div>
