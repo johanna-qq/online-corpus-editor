@@ -8,6 +8,7 @@ import sys
 # === Top-level Config ===
 import oce.config
 
+log_level = ""
 if oce.config.debug_mode:
     log_level = "debug"
 
