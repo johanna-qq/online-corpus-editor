@@ -1,66 +1,46 @@
-# Online Corpus Editor: Server (Re-)Loader
+"""
+Handles the loading/reloading of the entire backend system
+(Experimental)
+"""
 
 import importlib
 import sys
 
-import oce.logger
-
-logger = oce.logger.getLogger(__name__)
-load_order = [
-    # General
-    "oce.config",
-    "oce.logger",
-    "oce.util",
-    # Data providers
-    "oce.providers.util",
-    "oce.providers.template",
-    "oce.providers.sqlite",
-    "oce.providers",
-    # Interfaces
-    "oce.interfaces.template",
-    "oce.interfaces.websocket",
-    "oce.interfaces",
-    # Language ID
-    "oce.langid.langid",
-    "oce.langid.features",
-    "oce.langid",
-    # Main controller
-    "oce.controller"
-]
-modules_loaded = False
-controller_name = "oce.controller"
+# Constant module names
+logger_mod = 'oce.logger'
+controller_mod = 'oce.controller'
 
 
-def init(*args, **kwargs):
-    """
-    Starts up the server with the given parameters.
-    We wait till now to do the full load because some of the modules can
-    take a while to initialise; NLTK is particularly expensive on first
-    load.
-    """
-    global modules_loaded
-    if not modules_loaded:
-        load_modules()
-        modules_loaded = True
-    sys.modules[controller_name].init(*args, **kwargs)
+class Loader:
+    def __init__(self):
+        """
+        Starts tracking all external modules loaded past this point
+        (http://pyunit.sourceforge.net/notes/reloading.html)
+        """
+        self.prev_modules = sys.modules.copy()
+        self.logger = importlib.import_module(logger_mod).getLogger(__name__)
+        self.logger.info("Loader: Now tracking new imports.")
 
+    def init(self, *args, **kwargs):
+        """
+        Starts up the server with the given parameters.
+        We wait till now to do the full load because some of the modules can
+        take a while to initialise; NLTK is particularly expensive on first
+        load.
+        """
+        importlib.import_module(controller_mod).init(*args, **kwargs)
 
-def load_modules():
-    """
-    Loads the modules specified in load_order
-    """
-    for module in load_order:
-        logger.debug("Importing module - " + module)
-        importlib.import_module(module)
-
-
-def reload():
-    """
-    Reloads all the modules specified in load_order
-    """
-    global modules_loaded
-    for module in load_order:
-        logger.info("Reloading module - " + module)
-        importlib.reload(sys.modules[module])
-        modules_loaded = True
-    return
+    def unload(self):
+        """
+        Removes all OCE modules and external dependencies from the import cache;
+        They will be reloaded when next imported.
+        """
+        self.logger.info("Loader: Marking system modules for reload.")
+        keep_modules = list(self.prev_modules.keys())
+        current_modules = list(sys.modules.keys())
+        for module in current_modules:
+            if module not in keep_modules or module.startswith("oce"):
+                self.logger.debug(
+                    "Loader: Invalidating cached module -- {}".format(module)
+                )
+                del sys.modules[module]

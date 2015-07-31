@@ -14,7 +14,7 @@ logger = oce.logger.getLogger(__name__)
 # === Config ===
 from oce.config import sge_words
 from oce.config import sge_chinese_derived_words, sge_malay_derived_words
-from oce.config import valid_pinyin
+from oce.langid.constants import valid_pinyin
 
 # === Spellcheckers ===
 enchant.set_param("enchant.myspell.dictionary.path", "./lib/dict")

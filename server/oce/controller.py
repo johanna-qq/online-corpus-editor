@@ -27,7 +27,7 @@ import urllib.parse
 
 import oce.langid
 import oce.logger
-import oce.util
+import oce.exceptions
 
 import oce.providers.util
 
@@ -61,7 +61,7 @@ def langid_function(func):
                 'error': True,
                 'message': "Server returned a LookupError:\n" + str(e).strip()
             }
-        except oce.util.CustomError as e:
+        except oce.exceptions.CustomError as e:
             return {
                 'error': True,
                 'message': str(e).strip()
@@ -85,17 +85,21 @@ class Act:  # Hurr hurr
         **kwargs should specify exactly one provider class and at least one
         interface class.
         """
-        logger.info("Initialising system components...")
+        logger.info("Initialising controller...")
 
         # Bring up data providers and server interfaces
         self.provider = None
         self.servers = []
         for key, value in kwargs.items():
+            if value is None:
+                # The user did not specify this provider/interface as a server
+                # parameter, and its default settings have been disabled.
+                continue
             if key in provider_classes.keys():
                 if self.provider is None:
                     self.provider = provider_classes[key](value)
                 else:
-                    raise oce.util.CustomError(
+                    raise oce.exceptions.CustomError(
                         "More than one data provider specified."
                     )
             elif key in interface_classes.keys():
@@ -106,17 +110,17 @@ class Act:  # Hurr hurr
                                                 self.deregister_client)
                 self.servers.append(server)
             else:
-                raise oce.util.CustomError(
+                raise oce.exceptions.CustomError(
                     "Invalid provider/interface: '{}'".format(key)
                 )
 
         # Make sure they're up
         if self.provider is None:
-            raise oce.util.CustomError(
+            raise oce.exceptions.CustomError(
                 "No data provider specified."
             )
         if len(self.servers) == 0:
-            raise oce.util.CustomError(
+            raise oce.exceptions.CustomError(
                 "No interfaces specified."
             )
 
@@ -164,7 +168,7 @@ class Act:  # Hurr hurr
                 # of do_loop() -- Old watchers will remain active, which might
                 # cause repeated operations and other subtle bugs.
                 loop.run_until_complete(self.do_loop())
-        except (oce.util.RestartInterrupt, oce.util.ShutdownInterrupt):
+        except (oce.exceptions.RestartInterrupt, oce.exceptions.ShutdownInterrupt):
             # We're going down
             self.shutdown()
             raise
@@ -258,9 +262,9 @@ class Act:  # Hurr hurr
                 try:
                     return_message = self.exec_command(request)
                     yield from client.put_output_async(return_message)
-                except oce.util.ShutdownInterrupt:
+                except oce.exceptions.ShutdownInterrupt:
                     shutdown_this_watch = True
-                except oce.util.RestartInterrupt:
+                except oce.exceptions.RestartInterrupt:
                     restart_this_watch = True
 
         logger.debug(
@@ -268,9 +272,9 @@ class Act:  # Hurr hurr
         )
 
         if shutdown_this_watch:
-            raise oce.util.ShutdownInterrupt
+            raise oce.exceptions.ShutdownInterrupt
         elif restart_this_watch:
-            raise oce.util.RestartInterrupt
+            raise oce.exceptions.RestartInterrupt
 
     # ---------------------------
     # Client interface management
@@ -434,13 +438,13 @@ class Act:  # Hurr hurr
         We're within Act's looping mechanism -- Raise the interrupt to drop out
         of the loop
         """
-        raise oce.util.RestartInterrupt
+        raise oce.exceptions.RestartInterrupt
 
     def exec_shutdown(self, _):
         """
         Same as restart, but we're shutting down now
         """
-        raise oce.util.ShutdownInterrupt
+        raise oce.exceptions.ShutdownInterrupt
 
     def exec_debug(self, _):
         """

@@ -8,7 +8,7 @@ import sys
 import nltk.classify
 import nltk.tokenize
 
-import oce.util
+import oce.exceptions
 import oce.logger
 import oce.langid.features
 
@@ -110,7 +110,7 @@ class LangIDController:
                       "algorithm instead.  (Much slower)\n"
                 logger.warning(msg)
                 msg += "\nOriginal LookupError:\n"
-                custom = oce.util.CustomError(str(e).strip(), pre=msg)
+                custom = oce.exceptions.CustomError(str(e).strip(), pre=msg)
                 raise custom
         else:
             logger.warning("'" + model + "' is not a valid classifier model.")

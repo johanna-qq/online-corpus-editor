@@ -37,6 +37,9 @@ import sys
 # =============
 # Configuration
 # =============
+# The following interfaces/data providers will be initialised by default.
+# To disable any of them, set the corresponding value below to None.
+# I.e., default_<option> = None
 default_ws_port = 8081
 default_sqlite_db = 'data/sge_tweets.db'
 
@@ -49,10 +52,10 @@ sys.path.insert(1, os.path.join(os.getcwd(), "lib"))
 # Argument parsing
 # ================
 parser = argparse.ArgumentParser(
-    description="Starts the backend server for the online corpus editor.",
-    epilog="By default, a WebSocket server is started on port " +
-           str(default_ws_port) + " using an SQLite DB located at '" +
-           default_sqlite_db + "'.")
+    description="Starts the backend system for the online corpus editor.",
+    epilog="Default settings for data providers and client-server interfaces "
+           "can be set in 'oce/config.py'.")
+
 parser.add_argument('-ws',
                     default=default_ws_port,
                     metavar='WS_PORT',
@@ -61,49 +64,44 @@ parser.add_argument('-sqlite',
                     default=default_sqlite_db,
                     metavar='SQLITE_DB',
                     help='The path to the SQLite database file to use.')
-raw_args = parser.parse_args()
 
-# `args` will be passed as keyword arguments to the controller for
-# initialisation
-args = {
-    'sqlite': raw_args.sqlite,
-    'ws': raw_args.ws
-}
+kwargs = vars(parser.parse_args())
 
 # ====
 # Init
 # ====
-import oce.loader
-import oce.logger
-import oce.util
-
-logger = oce.logger.getLogger(__name__)
-logger.info("=== Server starting up ===")
-
-# The server will reload itself if a user requests a restart.
-# The only thing that won't be reloaded is this file.
 quit_flag = False
 while not quit_flag:
+
+    print("\n=== Server starting up ===\n")
+
+    # Start up the loader, which tracks imports past this point and marks them
+    # for reloading when the server is restarted.
+    # The only thing that won't be reloaded is this file.
+    loader = importlib.import_module('oce.loader').Loader()
+
+    exceptions = importlib.import_module('oce.exceptions')
     try:
-        oce.loader.init(**args)
-    except oce.util.RestartInterrupt:
-        logger.info("=== Restarting system ===")
-        # Reload the loader, then let the loader reload everything else
-        importlib.reload(oce.loader)
-        oce.loader.reload()
-    except oce.util.ShutdownInterrupt:
-        logger.info("=== Shutting down system ===")
+        loader.init(**kwargs)
+    except exceptions.RestartInterrupt:
+        print("\n=== Restarting system ===\n")
+        loader.unload()
+        del loader
+        # And loop around to recreate `loader` and reload the system
+    except exceptions.ShutdownInterrupt:
+        print("\n=== Shutting down system ===\n")
         quit_flag = True
     except Exception as e:
-        logger.error("<<< System Error >>>")
+        print("\n<<< System Error >>>\n")
         raise
     else:
         # The server went down silently -- This shouldn't happen, but let's
         # log it and leave the system down (in case of infinite loops etc.)
-        logger.warning("<<< Unexpected shutdown >>>")
+        print("\n<<< Unexpected shutdown >>>\n")
         quit_flag = True
-
-# Reset the logger so that any final log messages use the basic handler
-root_logger = logging.getLogger()
-root_logger.handlers = []
-logging.basicConfig()
+    finally:
+        # Reset the logger so that any final log messages (from unexpected
+        # errors, etc.) use the basic handler
+        root_logger = logging.getLogger()
+        root_logger.handlers = []
+        logging.basicConfig()
