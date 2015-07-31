@@ -76,11 +76,12 @@ class WebsocketServer(ServerInterface):
         if len(self.client_list) > 0:
             logger.info("Kicking connected Websocket clients...")
             for client in self.client_list:
-                asyncio.async(client.close())
+                yield from client.close()
 
         # The handlers in handler_list only complete once their clients are
         # completely closed and deregistered.
-        yield from asyncio.wait(self.handler_list)
+        if len(self.handler_list) > 0:
+            yield from asyncio.wait(self.handler_list)
 
         self.server.close()
         yield from self.server.wait_closed()

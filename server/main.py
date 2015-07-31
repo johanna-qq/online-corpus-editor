@@ -34,15 +34,6 @@ import logging
 import os
 import sys
 
-# =============
-# Configuration
-# =============
-# The following interfaces/data providers will be initialised by default.
-# To disable any of them, set the corresponding value below to None.
-# I.e., default_<option> = None
-default_ws_port = 8081
-default_sqlite_db = 'data/sge_tweets.db'
-
 # ===============
 # Path management
 # ===============
@@ -56,14 +47,19 @@ parser = argparse.ArgumentParser(
     epilog="Default settings for data providers and client-server interfaces "
            "can be set in 'oce/config.py'.")
 
-parser.add_argument('-ws',
-                    default=default_ws_port,
-                    metavar='WS_PORT',
-                    help='The port to run the WebSocket server on.')
-parser.add_argument('-sqlite',
-                    default=default_sqlite_db,
-                    metavar='SQLITE_DB',
-                    help='The path to the SQLite database file to use.')
+# Read in the available providers and interfaces from the configuration file
+# and add them as arguments.
+import oce.config
+
+for provider, details in oce.config.provider_classes.items():
+    parser.add_argument('-{}'.format(provider),
+                        default=details['default_source'],
+                        help=details['option_help'])
+
+for interface, details in oce.config.interface_classes.items():
+    parser.add_argument('-{}'.format(interface),
+                        default=details['default_port'],
+                        help=details['option_help'])
 
 kwargs = vars(parser.parse_args())
 
@@ -73,7 +69,7 @@ kwargs = vars(parser.parse_args())
 quit_flag = False
 while not quit_flag:
 
-    print("\n=== Server starting up ===\n")
+    print("\n=== System starting up ===\n")
 
     # Start up the loader, which tracks imports past this point and marks them
     # for reloading when the server is restarted.
@@ -83,19 +79,24 @@ while not quit_flag:
     exceptions = importlib.import_module('oce.exceptions')
     try:
         loader.init(**kwargs)
+
+    # If we see any exceptions, the controller is dead.
     except exceptions.RestartInterrupt:
         print("\n=== Restarting system ===\n")
         loader.unload()
         del loader
         # And loop around to recreate `loader` and reload the system
     except exceptions.ShutdownInterrupt:
-        print("\n=== Shutting down system ===\n")
+        print("\n=== System shut down ===\n")
+        quit_flag = True
+    except KeyboardInterrupt:
+        print("\n=== System shut down ===\n")
         quit_flag = True
     except Exception as e:
         print("\n<<< System Error >>>\n")
         raise
     else:
-        # The server went down silently -- This shouldn't happen, but let's
+        # The controller went down silently -- This shouldn't happen, but let's
         # log it and leave the system down (in case of infinite loops etc.)
         print("\n<<< Unexpected shutdown >>>\n")
         quit_flag = True

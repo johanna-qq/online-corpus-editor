@@ -15,7 +15,7 @@ class Loader:
     def __init__(self):
         """
         Starts tracking all external modules loaded past this point
-        (http://pyunit.sourceforge.net/notes/reloading.html)
+        (Idea from http://pyunit.sourceforge.net/notes/reloading.html)
         """
         self.prev_modules = sys.modules.copy()
         self.logger = importlib.import_module(logger_mod).getLogger(__name__)
@@ -29,6 +29,12 @@ class Loader:
         load.
         """
         importlib.import_module(controller_mod).init(*args, **kwargs)
+
+    def shutdown(self):
+        """
+        Propagates a shutdown request from the main script into the controller
+        """
+        importlib.import_module(controller_mod).shutdown()
 
     def unload(self):
         """

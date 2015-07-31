@@ -2,12 +2,6 @@
 A data provider that interacts with an SQLite database using SQLAlchemy's ORM
 functionality
 """
-
-
-def test():
-    print("test")
-    return
-
 import sqlalchemy
 import sqlalchemy.orm
 import sqlalchemy.sql.expression

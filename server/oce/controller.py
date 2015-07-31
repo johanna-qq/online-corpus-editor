@@ -1,37 +1,36 @@
 """
-Main system controller.
-
-Will initialise the data provider(s) and client-server interface(s) requested,
-and manage the main system event loop.
+Main system controller
+Initialises the data provider(s) and client-server interface(s) requested and
+manages the main system event loop.
 """
-
-# ===================================
-# Configuration: Providers/Interfaces
-# ===================================
-import oce.providers
-
-provider_classes = {
-    'sqlite': oce.providers.SQLiteProvider
-}
-
-import oce.interfaces
-
-interface_classes = {
-    'ws': oce.interfaces.WebsocketServer
-}
-# =============
-
 import asyncio
 from concurrent.futures import FIRST_COMPLETED, CancelledError
 import urllib.parse
 
-import oce.langid
 import oce.logger
-import oce.exceptions
-
-import oce.providers.util
 
 logger = oce.logger.getLogger(__name__)
+
+# ====================
+# Providers/Interfaces
+# ====================
+import oce.config
+import oce.providers
+import oce.interfaces
+
+# Parse from configuration file and prepare for instantiation
+provider_classes = {}
+for provider, details in oce.config.provider_classes.items():
+    provider_classes[provider] = getattr(oce.providers, details['class'])
+
+interface_classes = {}
+for interface, details in oce.config.interface_classes.items():
+    interface_classes[interface] = getattr(oce.interfaces, details['class'])
+
+# ====================
+
+import oce.langid
+import oce.exceptions
 
 
 def init(**kwargs):
@@ -39,8 +38,12 @@ def init(**kwargs):
     Initialises the controller and starts the main system loop.
     """
     actor = Act(**kwargs)
-    actor.start_loop()
-    # === No processing occurs past this point until the system loop stops ===
+    try:
+        actor.start_loop()
+        # === No processing occurs past this point until the loop stops ===
+    except KeyboardInterrupt:
+        actor.shutdown()
+        raise
 
 
 # Decorator
@@ -56,7 +59,6 @@ def langid_function(func):
         try:
             return func(*args, **kwargs)
         except LookupError as e:
-
             return {
                 'error': True,
                 'message': "Server returned a LookupError:\n" + str(e).strip()
@@ -85,7 +87,7 @@ class Act:  # Hurr hurr
         **kwargs should specify exactly one provider class and at least one
         interface class.
         """
-        logger.info("Initialising controller...")
+        logger.info("=== Controller Initialisation ===")
 
         # Bring up data providers and server interfaces
         self.provider = None
@@ -161,16 +163,28 @@ class Act:  # Hurr hurr
     # ----------
     def start_loop(self):
         loop = asyncio.get_event_loop()
+        current_iteration = None
         try:
             while True:
-                # N.B.: If running from an interactive console, not that
-                # KeyboardInterrupt does NOT fully cancel the current iteration
-                # of do_loop() -- Old watchers will remain active, which might
-                # cause repeated operations and other subtle bugs.
-                loop.run_until_complete(self.do_loop())
-        except (oce.exceptions.RestartInterrupt, oce.exceptions.ShutdownInterrupt):
-            # We're going down
+                # N.B.: If Act was instantiated from an interactive console,
+                # note that KeyboardInterrupt will drop back to a prompt
+                # but NOT fully cancel the current iteration of do_loop() --
+                # Old watchers will remain active, which might cause repeated
+                #  operations and other subtle bugs.
+                current_iteration = asyncio.async(self.do_loop())
+                loop.run_until_complete(current_iteration)
+        except (oce.exceptions.RestartInterrupt,
+                oce.exceptions.ShutdownInterrupt):
+            logger.info("=== Controller shutdown ===")
             self.shutdown()
+            raise
+        except KeyboardInterrupt:
+            logger.info("=== KeyboardInterrupt ===")
+            # Try to finish off the current iteration
+            if current_iteration is not None:
+                logger.debug("Controller: Trying to finish interrupted loop")
+                current_iteration.cancel()
+                loop.run_until_complete(current_iteration)
             raise
 
     @asyncio.coroutine
@@ -178,11 +192,10 @@ class Act:  # Hurr hurr
         """
         In each iteration of the loop, we:
 
-          1) Watch all registered clients, grabbing the first bit of input to
+          1) Watch all registered clients, grabbing the first bit(s) of input to
              come through.  If any new clients are registered, restart the
              loop to include them too.
           2) Process the input and send it back to the client
-          3) Set self.stop_loop if we we're done
 
         The beauty of coroutines is that we are guaranteed synchronous setup
         until we `yield from`, which blocks until something does happen (which
@@ -396,13 +409,14 @@ class Act:  # Hurr hurr
         raw_data = labelled['results']
         # Normalise case + sort + save language labels in case it wasn't done
         # earlier.
-        for i, datum in enumerate(raw_data):
-            normalised = oce.providers.util.langid_normalise_language(
-                datum['language'])
-            if normalised != datum['language']:
-                self.provider.update_record(datum['rowid'], 'language',
-                                            normalised)
-            raw_data[i]['language'] = normalised
+        # TODO: Move this to a dedicate DB check function
+        # for i, datum in enumerate(raw_data):
+        #     normalised = oce.providers.util.langid_normalise_language(
+        #         datum['language'])
+        #     if normalised != datum['language']:
+        #         self.provider.update_record(datum['rowid'], 'language',
+        #                                     normalised)
+        #     raw_data[i]['language'] = normalised
         labelled_data = self.langid.prepare_labelled_data(raw_data)
         training_set = [(self.langid.extract_features(s), l)
                         for (s, l) in labelled_data]

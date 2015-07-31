@@ -117,6 +117,7 @@ class LangIDController:
             return
 
         self.classifier.model_name = model
+        self.save_classifier()
 
     def suggest_language(self, sentence):
         classifier = self.get_classifier()
@@ -150,6 +151,4 @@ class LangIDController:
             classifier.show_most_informative_features(20)
 
     def shutdown(self):
-        if self.check_classifier():
-            logger.info("Saving trained classifier...")
-            self.save_classifier()
+        pass

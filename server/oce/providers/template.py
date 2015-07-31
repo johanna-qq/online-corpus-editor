@@ -25,7 +25,7 @@ def warn_undefined(func):
 
 class DataProvider:
     # Startup/Shutdown
-    def __init__(self, address=None):
+    def __init__(self, address):
         """
         Given an identifier for the DB resource, prepare the data provider
         """
@@ -55,14 +55,14 @@ class DataProvider:
 
     # Selection
     @warn_undefined
-    def fetch_record(self, row_id=None):
+    def fetch_record(self, row_id):
         """
         Return one record from the corpus as a Dictionary of fields -> values
         """
         return
 
     @warn_undefined
-    def fetch_records(self, first=None, last=None):
+    def fetch_records(self, first, last):
         """
         Return a List of records (as Dictionaries) that have IDs within the
         range specified, inclusive
@@ -70,7 +70,7 @@ class DataProvider:
         return
 
     @warn_undefined
-    def fetch_search_results(self, query=None, offset=None, limit=None):
+    def fetch_search_results(self, query, offset, limit):
         """
         Return:
         1) Total number of results
@@ -91,7 +91,7 @@ class DataProvider:
 
     # Modification
     @warn_undefined
-    def update_record(self, row_id=None, field=None, value=None):
+    def update_record(self, row_id, field, value):
         """
         Updates a record in the corpus, and returns the new field -> value pair,
         including any server-side modifications
