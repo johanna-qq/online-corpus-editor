@@ -4,11 +4,13 @@ Manages the telnet parser
 import asyncio
 from concurrent.futures import CancelledError, FIRST_COMPLETED
 
+import textwrap
+
 import oce.logger
 
 logger = oce.logger.getLogger(__name__)
 
-# === Command/Reply Table ===
+# === Command/Reply/Help Tables ===
 # The command table maps the first word of the client input to a given
 # command function.  The command functions are all methods of the
 # TelnetParser class.
@@ -20,7 +22,7 @@ command_table = {
     'exit': 'command_exit',
     'quit': 'command_exit',
     'motd': 'command_motd',
-    'help': 'command_help',
+    'commands': 'command_commands',
 
     # Server administration
     'restart': 'command_restart',
@@ -41,6 +43,12 @@ format_table = {
     'motd': 'format_raw'
 }
 
+# The help table maps the names of commands to their help strings.
+# When a user types 'help <key>', help_table[<key>] gets returned.
+# The help strings should be actual Strings
+# TODO: These will be in a separate file/db
+# from telnet_help import help_table
+
 
 class TelnetParser:
     def __init__(self, client_input, client_output, remote_ip):
@@ -57,7 +65,8 @@ class TelnetParser:
         self.parsed_input = asyncio.Queue()
         self.raw_output = asyncio.Queue()
 
-        self.prompt = "command> "
+        self.textwrap = textwrap.TextWrapper()
+        self.prompt = "> "
 
     @asyncio.coroutine
     def get_parsed(self):
@@ -197,9 +206,15 @@ class TelnetParser:
         """
         Sends an arbitrary message to the client.
         """
+        # Wrap all output to the client
+        msg_lines = msg.splitlines()
+        msg_wrapped = ["\r\n".join(self.textwrap.wrap(line)) for line in
+                       msg_lines]
+        msg = "\r\n".join(msg_wrapped)
+
         # Leading and trailing newlines for non-empty messages
         if msg != '':
-            msg = "\n{}\n\n".format(msg)
+            msg = "\r\n{}\r\n\r\n".format(msg)
 
         if prompt:
             to_client = "{}{}".format(msg, self.prompt)
@@ -235,6 +250,12 @@ class TelnetParser:
     def command_meta(self):
         request = {'command': 'meta'}
         return request
+
+    @asyncio.coroutine
+    def command_commands(self):
+        # Todo: This should be nicer.
+        data = "Commands:\r\n{}".format(" ".join(command_list))
+        yield from self.send_to_client(data)
 
     # === Format Functions ===
     @asyncio.coroutine
