@@ -6,7 +6,7 @@
 # ==============
 
 # Debug mode
-debug_mode = False
+debug_mode = True
 
 # ------------------------
 # Providers and Interfaces
@@ -38,6 +38,12 @@ interface_classes = {
         'class': 'WebsocketServer',
         'default_port': 8081,
         'option_help': 'The port to run the Websocket server on.'
+    },
+
+    'telnet': {
+        'class': 'TelnetServer',
+        'default_port': 8082,
+        'option_help': 'The port to run the telnet server on.'
     }
 }
 

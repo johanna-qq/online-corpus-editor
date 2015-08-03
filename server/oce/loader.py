@@ -28,13 +28,7 @@ class Loader:
         take a while to initialise; NLTK is particularly expensive on first
         load.
         """
-        importlib.import_module(controller_mod).init(*args, **kwargs)
-
-    def shutdown(self):
-        """
-        Propagates a shutdown request from the main script into the controller
-        """
-        importlib.import_module(controller_mod).shutdown()
+        importlib.import_module(controller_mod).execute(*args, **kwargs)
 
     def unload(self):
         """

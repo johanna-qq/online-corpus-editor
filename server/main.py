@@ -89,9 +89,6 @@ while not quit_flag:
     except exceptions.ShutdownInterrupt:
         print("\n=== System shut down ===\n")
         quit_flag = True
-    except KeyboardInterrupt:
-        print("\n=== System shut down ===\n")
-        quit_flag = True
     except Exception as e:
         print("\n<<< System Error >>>\n")
         raise

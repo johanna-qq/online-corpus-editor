@@ -33,17 +33,25 @@ import oce.langid
 import oce.exceptions
 
 
-def init(**kwargs):
+def execute(**kwargs):
     """
-    Initialises the controller and starts the main system loop.
+    Initialises the controller and runs the main system loop until a shutdown
+    is requested by a client.
     """
     actor = Act(**kwargs)
-    try:
-        actor.start_loop()
-        # === No processing occurs past this point until the loop stops ===
-    except KeyboardInterrupt:
-        actor.shutdown()
-        raise
+    loop = asyncio.get_event_loop()
+    system_loop = loop.create_task(actor.run_controller())
+    loop.run_forever()
+    # === No processing occurs past this point until the loop stops ===
+
+    # If the loop stopped, it's probably because someone requested a shutdown
+    # or restart.  Clean up the controller and let the main script know what
+    # happened.
+    loop_exception = system_loop.exception()
+    if loop_exception is not None:
+        loop.run_until_complete(actor.shutdown())
+        loop.close()
+        raise loop_exception
 
 
 # Decorator
@@ -137,17 +145,18 @@ class Act:  # Hurr hurr
         # This is a list of tuples: (ClientInterface, Future)
         self.client_watch = []
 
+    @asyncio.coroutine
     def shutdown(self):
-
         logger.info("Shutting down client watchers...")
         for x in self.client_watch:
+            # The client watchers are coroutines
             x[1].cancel()
-            asyncio.get_event_loop().run_until_complete(x[1])
+            yield from x[1]
 
         logger.info("Shutting down interfaces...")
-        # The connection manager uses coroutines
         for server in self.servers:
-            asyncio.get_event_loop().run_until_complete(server.shutdown())
+            # The connection manager uses coroutines
+            yield from server.shutdown()
         self.servers = []
 
         logger.info("Shutting down data provider...")
@@ -161,34 +170,23 @@ class Act:  # Hurr hurr
     # ----------
     # Event Loop
     # ----------
-    def start_loop(self):
-        loop = asyncio.get_event_loop()
-        current_iteration = None
-        try:
-            while True:
-                # N.B.: If Act was instantiated from an interactive console,
-                # note that KeyboardInterrupt will drop back to a prompt
-                # but NOT fully cancel the current iteration of do_loop() --
-                # Old watchers will remain active, which might cause repeated
-                #  operations and other subtle bugs.
-                current_iteration = asyncio.async(self.do_loop())
-                loop.run_until_complete(current_iteration)
-        except (oce.exceptions.RestartInterrupt,
-                oce.exceptions.ShutdownInterrupt):
-            logger.info("=== Controller shutdown ===")
-            self.shutdown()
-            raise
-        except KeyboardInterrupt:
-            logger.info("=== KeyboardInterrupt ===")
-            # Try to finish off the current iteration
-            if current_iteration is not None:
-                logger.debug("Controller: Trying to finish interrupted loop")
-                current_iteration.cancel()
-                loop.run_until_complete(current_iteration)
-            raise
+    @asyncio.coroutine
+    def run_controller(self):
+        while True:
+            # N.B.: If Act was instantiated from an interactive console,
+            # note that KeyboardInterrupt will drop back to a prompt
+            # but NOT fully cancel the current iteration of do_loop() --
+            # Old watchers will remain active, which might cause repeated
+            #  operations and other subtle bugs.
+            try:
+                yield from self.iterate_controller()
+            except (oce.exceptions.RestartInterrupt,
+                    oce.exceptions.ShutdownInterrupt):
+                asyncio.get_event_loop().stop()
+                raise
 
     @asyncio.coroutine
-    def do_loop(self):
+    def iterate_controller(self):
         """
         In each iteration of the loop, we:
 
@@ -197,9 +195,10 @@ class Act:  # Hurr hurr
              loop to include them too.
           2) Process the input and send it back to the client
 
-        The beauty of coroutines is that we are guaranteed synchronous setup
-        until we `yield from`, which blocks until something does happen (which
-        prevents our pseudo-infinite loop above from chewing up resources)
+        The beauty of coroutines is that we are guaranteed synchronous
+        operation until we `yield from`, which blocks until something does
+        happen (which prevents our pseudo-infinite loop above from chewing up
+        resources)
         """
 
         # Watch new clients, stop watching dropped clients.
@@ -348,7 +347,8 @@ class Act:  # Hurr hurr
         # TODO: This echo might not be necessary once the client starts using
         # promises.
         records = self.provider.fetch_records(request['start'], request['end'])
-
+        if 'record' not in request.keys():
+            request['record'] = request['start']
         return {
             'results': records,
             'record': request['record']
@@ -400,8 +400,6 @@ class Act:  # Hurr hurr
     def exec_retrain(self, _):
         """
         High-level manager for retraining the language detection classifier
-        :param request:
-        :return:
         """
         # Get all the currently labelled records from the corpus, send them over
         # to the feature extractor
