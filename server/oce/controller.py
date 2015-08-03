@@ -172,18 +172,18 @@ class Act:  # Hurr hurr
     # ----------
     @asyncio.coroutine
     def run_controller(self):
-        while True:
-            # N.B.: If Act was instantiated from an interactive console,
-            # note that KeyboardInterrupt will drop back to a prompt
-            # but NOT fully cancel the current iteration of do_loop() --
-            # Old watchers will remain active, which might cause repeated
-            #  operations and other subtle bugs.
-            try:
+        # N.B.: If Act was instantiated from an interactive console,
+        # note that KeyboardInterrupt will drop back to a prompt
+        # but NOT fully cancel the current iteration of do_loop() --
+        # Old watchers will remain active, which might cause repeated
+        #  operations and other subtle bugs.
+        try:
+            while True:
                 yield from self.iterate_controller()
-            except (oce.exceptions.RestartInterrupt,
-                    oce.exceptions.ShutdownInterrupt):
-                asyncio.get_event_loop().stop()
-                raise
+        except (oce.exceptions.RestartInterrupt,
+                oce.exceptions.ShutdownInterrupt):
+            asyncio.get_event_loop().stop()
+            raise
 
     @asyncio.coroutine
     def iterate_controller(self):
@@ -320,21 +320,24 @@ class Act:  # Hurr hurr
                 "shutting down."
             )
 
-    # --------
+    # ========
     # Commands
-    # --------
+    # ========
     def exec_command(self, request):
         """
         Perform a requested command return the results as an object suitable for
         the client
-        :param request:
-        :return:
         """
 
         # By delegating it to our lovely helper functions
         command = request['command']
-        command_fn = getattr(self, 'exec_' + command)
-        results = command_fn(request)
+        return_message = {}
+        if hasattr(self, 'exec_' + command):
+            command_fn = getattr(self, 'exec_' + command)
+            results = command_fn(request)
+        else:
+            logger.warning("Invalid input from client.")
+            results = "error"
 
         return {
             'command': command,
@@ -444,6 +447,14 @@ class Act:  # Hurr hurr
                         datum['language']
                     )
                 )
+
+    def exec_motd(self, _):
+        """
+        Return the motd to an motd-capable interface.
+        """
+        with open(oce.config.motd_file, 'r') as f:
+            motd = f.read()
+        return motd
 
     def exec_restart(self, _):
         """

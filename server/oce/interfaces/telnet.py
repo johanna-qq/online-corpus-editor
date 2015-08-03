@@ -1,6 +1,20 @@
 """
-A simple TCP client-server interface.
+A basic telnet client-server interface.
+Implements a parser for saved state and more complex processing.
+
+The parser manages its own internal input/output queue loops to handle
+user commands that do not need data from the server.  The general flow is as
+follows:
+
+    [Client] -> TelnetClient.input_queue -> TelnetParser._read_client_input()
+    -> TelnetParser.parsed_input -> TelnetClient.get_input_async()
+    -> [Server]
+
+    [Server] -> TelnetClient.put_output_async() -> TelnetParser.raw_output
+    -> TelnetParser._read_server_output() -> TelnetClient.output_queue
+    -> [Client]
 """
+
 import asyncio
 from concurrent.futures import CancelledError, FIRST_COMPLETED
 import socket
@@ -10,6 +24,7 @@ import oce.logger
 logger = oce.logger.getLogger(__name__)
 
 from oce.interfaces.template import ServerInterface, ClientInterface
+from oce.interfaces.telnet_parser import TelnetParser, TelnetExit
 
 
 class TelnetServer(ServerInterface):
@@ -81,6 +96,10 @@ class TelnetClient(ClientInterface):
         self.input_queue = asyncio.Queue()
         self.output_queue = asyncio.Queue()
 
+        self.parser = TelnetParser(self.input_queue,
+                                   self.output_queue,
+                                   self.remote_ip)
+
     @asyncio.coroutine
     def close(self):
         """
@@ -99,9 +118,8 @@ class TelnetClient(ClientInterface):
         #     'command': command,
         #     'other_params': other_params
         # }
-        msg = yield from self.input_queue.get()
-        # return msg
-        return {'command': 'view', 'start': '12', 'end': '12', 'record': '12'}
+        msg = yield from self.parser.get_parsed()
+        return msg
 
     @asyncio.coroutine
     def put_output_async(self, msg):
@@ -114,14 +132,15 @@ class TelnetClient(ClientInterface):
         #     'command': command,
         #     'data': results
         # }
-        yield from self.output_queue.put(msg)
+        yield from self.parser.put_raw(msg)
 
     @asyncio.coroutine
     def communicate_until_closed(self):
         logger.info("[{}] New telnet client.".format(self.remote_ip))
 
         communication_tasks = [asyncio.async(self._receive_to_queue()),
-                               asyncio.async(self._send_from_queue())]
+                               asyncio.async(self._send_from_queue()),
+                               asyncio.async(self.parser.run_parser())]
         done, pending = yield from asyncio.wait(communication_tasks,
                                                 return_when=FIRST_COMPLETED)
 
@@ -131,15 +150,19 @@ class TelnetClient(ClientInterface):
 
         for task in done:
             e = task.exception()
-            if isinstance(e, Exception):
-                # If any of our tasks threw an exception, re-raise it instead of
-                # failing silently.
+            if isinstance(e, TelnetExit):
+                # No need to handle this here; the client will be closed anyway.
+                pass
+            elif isinstance(e, Exception):
+                # If any of our tasks threw a different exception, re-raise it
+                # instead of failing silently.
                 raise e
 
-        # Cancel any hangers-on (viz., _send_from_queue())
         for task in pending:
             task.cancel()
             yield from task
+
+        yield from self.close()
 
         logger.info("[{}] Cleanup complete.".format(self.remote_ip))
 
@@ -158,15 +181,15 @@ class TelnetClient(ClientInterface):
                     )
                     break
 
-                yield from self.input_queue.put(msg)
                 logger.info("[{}] [RECV] {}".format(
                     self.remote_ip,
                     msg)
                 )
+                yield from self.input_queue.put(msg)
+
         except CancelledError:
             logger.debug(
-                "[{}] CancelledError on receiver -- "
-                "Should not be happening.".format(self.remote_ip)
+                "[{}] Cancelling receiver...".format(self.remote_ip)
             )
 
     @asyncio.coroutine
@@ -174,15 +197,8 @@ class TelnetClient(ClientInterface):
         try:
             while True:
                 msg = yield from self.output_queue.get()
-                msg = str(msg)
-                msg_preview = msg[0:80]
-                # msg = base64.b64encode(zlib.compress(msg.encode())).decode()
+                msg_preview = msg[0:80].replace('\n', '\\n')
 
-                # if not self.websocket.open:
-                #     logger.error(
-                #         "[{}] Send error: Socket closed unexpectedly.".format(
-                #             self.websocket.remote_ip))
-                #     break
                 self.writer.write(msg.encode())
                 yield from self.writer.drain()
                 logger.info("[{}] [SEND] {}...".format(

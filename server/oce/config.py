@@ -8,6 +8,9 @@
 # Debug mode
 debug_mode = True
 
+# Message of the Day -- Will be shown to clients that request it
+motd_file = 'data/motd.txt'
+
 # ------------------------
 # Providers and Interfaces
 # ------------------------
