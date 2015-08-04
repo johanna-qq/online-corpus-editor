@@ -103,7 +103,7 @@ class TelnetParser:
 
         for task in pending:
             task.cancel()
-            yield from task
+        yield from asyncio.wait(pending)
 
     @asyncio.coroutine
     def _read_client_input(self):

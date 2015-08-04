@@ -3,6 +3,7 @@ A data provider that interacts with an SQLite database using SQLAlchemy's ORM
 functionality
 """
 import sqlalchemy
+import sqlalchemy.dialects
 import sqlalchemy.orm
 import sqlalchemy.sql.expression
 import sqlalchemy.exc
@@ -119,6 +120,13 @@ class SQLiteProvider(DataProvider):
             main = self.session.query(Records) \
                 .join(search, Records.rowid == search.c.docid) \
                 .order_by(Records.rowid)
+
+            logger.debug(
+                "Executing SQL: {}".format(
+                    str(main.statement.compile(
+                        dialect=sqlalchemy.dialects.sqlite.dialect()))
+                )
+            )
 
             results = [row.dictionary for row in main]
 

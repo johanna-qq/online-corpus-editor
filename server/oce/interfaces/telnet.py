@@ -172,8 +172,8 @@ class TelnetClient(ClientInterface):
             while True:
                 msg = yield from self.reader.readline()
 
-                # If the EOF was received and the internal buffer is empty,
-                # return an empty bytes object.
+                # "If the EOF was received and the internal buffer is empty,
+                # return an empty bytes object."
                 if msg == b'':
                     logger.info(
                         "[{}] Client connection closed.".format(
@@ -197,7 +197,10 @@ class TelnetClient(ClientInterface):
         try:
             while True:
                 msg = yield from self.output_queue.get()
-                msg_preview = msg[0:80].replace('\n', '\\n')
+                msg_preview = (msg[0:80]
+                               .replace('\n', '\\n')
+                               .replace('\r', '\\r')
+                               )
 
                 self.writer.write(msg.encode())
                 yield from self.writer.drain()
@@ -205,6 +208,7 @@ class TelnetClient(ClientInterface):
                     self.remote_ip,
                     msg_preview)
                 )
+
         except CancelledError:
             logger.debug("[{}] Cancelling sender...".format(
                 self.remote_ip))

@@ -168,7 +168,7 @@ class WebsocketClient(ClientInterface):
         # Cancel any hangers-on (viz., _send_from_queue())
         for task in pending:
             task.cancel()
-            yield from task
+        yield from asyncio.wait(pending)
 
         logger.info("[{}] Cleanup complete.".format(self.websocket.remote_ip))
 
