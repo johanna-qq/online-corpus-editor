@@ -381,6 +381,12 @@ class Act:  # Hurr hurr
 
         return self.provider.fetch_search_results(query, offset, limit)
 
+    def exec_literal_query(self, request):
+        limit = 0
+        if "limit" in request.keys():
+            limit = request["limit"]
+        return self.provider.execute_literal(request['query'], limit=limit)
+
     @langid_function
     def exec_langid(self, request):
         """

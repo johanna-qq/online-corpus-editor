@@ -97,3 +97,20 @@ class DataProvider:
         including any server-side modifications
         """
         return
+
+    # Literal SQL
+    @warn_undefined
+    def execute_orm_filter(self, where_conditions, table):
+        """
+        Executes a select on the specified table with a literal where clause.
+        Uses the SQLAlchemy ORM, so results are dictionaries.
+        """
+        return
+
+    @warn_undefined
+    def execute_literal(self, query):
+        """
+        Executes a literal sql query on the DB.
+        Bypasses the ORM, so results are tuples.
+        """
+        return

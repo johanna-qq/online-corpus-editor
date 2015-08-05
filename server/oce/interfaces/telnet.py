@@ -75,7 +75,7 @@ class TelnetServer(ServerInterface):
     def _new_client_handler(self, reader, writer):
         handler = asyncio.async(self._new_client_worker(reader, writer))
         self.handler_list.append(handler)
-        yield from asyncio.wait_for(handler, None)
+        yield from asyncio.wait([handler])
 
     @asyncio.coroutine
     def _new_client_worker(self, reader, writer):
@@ -100,8 +100,14 @@ class TelnetClient(ClientInterface):
                                    self.output_queue,
                                    self.remote_ip)
 
+        self.kill_switch = asyncio.Future()
+
     @asyncio.coroutine
     def close(self):
+        self.kill_switch.set_result(True)
+
+    @asyncio.coroutine
+    def _close(self):
         """
         A coroutine that gracefully kicks the client
         """
@@ -118,7 +124,7 @@ class TelnetClient(ClientInterface):
         #     'command': command,
         #     'other_params': other_params
         # }
-        msg = yield from self.parser.get_parsed()
+        msg = yield from self.parser.get_input_async()
         return msg
 
     @asyncio.coroutine
@@ -132,15 +138,16 @@ class TelnetClient(ClientInterface):
         #     'command': command,
         #     'data': results
         # }
-        yield from self.parser.put_raw(msg)
+        yield from self.parser.put_output_async(msg)
 
     @asyncio.coroutine
     def communicate_until_closed(self):
         logger.info("[{}] New telnet client.".format(self.remote_ip))
 
         communication_tasks = [asyncio.async(self._receive_to_queue()),
+                               asyncio.async(self.parser.run_parser()),
                                asyncio.async(self._send_from_queue()),
-                               asyncio.async(self.parser.run_parser())]
+                               self.kill_switch]
         done, pending = yield from asyncio.wait(communication_tasks,
                                                 return_when=FIRST_COMPLETED)
 
@@ -148,6 +155,7 @@ class TelnetClient(ClientInterface):
             "[{}] Cleaning up client...".format(self.remote_ip)
         )
 
+        got_exception = None
         for task in done:
             e = task.exception()
             if isinstance(e, TelnetExit):
@@ -156,15 +164,24 @@ class TelnetClient(ClientInterface):
             elif isinstance(e, Exception):
                 # If any of our tasks threw a different exception, re-raise it
                 # instead of failing silently.
-                raise e
+                got_exception = e
 
-        for task in pending:
-            task.cancel()
-            yield from task
+        # Make sure we cancel the tasks in order, so that last minute
+        # messages can still get sent.
+        for task in communication_tasks:
+            if not task.done():
+                task.cancel()
+                # self.kill_switch is a simple Future; it doesn't need to
+                # clean up.
+                if task != self.kill_switch:
+                    yield from task
 
-        yield from self.close()
+        yield from self._close()
 
         logger.info("[{}] Cleanup complete.".format(self.remote_ip))
+
+        if got_exception is not None:
+            raise got_exception
 
     @asyncio.coroutine
     def _receive_to_queue(self):
@@ -194,21 +211,41 @@ class TelnetClient(ClientInterface):
 
     @asyncio.coroutine
     def _send_from_queue(self):
+        preview_length = 80
+
+        # ======================================
+        @asyncio.coroutine
+        def execute(msg):
+            msg_preview = (msg[0:preview_length]
+                           .replace('\n', '\\n')
+                           .replace('\r', '\\r')
+                           )
+
+            if len(msg) > preview_length:
+                msg_preview += "..."
+
+            self.writer.write(msg.encode())
+            yield from self.writer.drain()
+            logger.info("[{}] [SEND] {}".format(
+                self.remote_ip,
+                msg_preview)
+            )
+
+        # ======================================
+
         try:
             while True:
                 msg = yield from self.output_queue.get()
-                msg_preview = (msg[0:80]
-                               .replace('\n', '\\n')
-                               .replace('\r', '\\r')
-                               )
-
-                self.writer.write(msg.encode())
-                yield from self.writer.drain()
-                logger.info("[{}] [SEND] {}...".format(
-                    self.remote_ip,
-                    msg_preview)
-                )
+                yield from execute(msg)
 
         except CancelledError:
             logger.debug("[{}] Cancelling sender...".format(
                 self.remote_ip))
+
+            # Goodbye, client
+            yield from self.output_queue.put("Server closing connection -- "
+                                             "Goodbye.")
+
+            while self.output_queue.qsize() > 0:
+                msg = self.output_queue.get_nowait()
+                yield from execute(msg)

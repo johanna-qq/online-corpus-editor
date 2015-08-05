@@ -1,17 +1,23 @@
 """
 A data provider that interacts with an SQLite database using SQLAlchemy's ORM
-functionality
+functionality.
+
+When writing new memoised functions, be sure to reference them in
+_clear_caches() so that they can be reset when the DB is updated.
 """
+import functools
 import sqlalchemy
 import sqlalchemy.dialects
 import sqlalchemy.orm
 import sqlalchemy.sql.expression
 import sqlalchemy.exc
+import sqlalchemy.ext.declarative.api
 
 import re
 import sqlite3
 import timeit
 
+import oce.exceptions
 import oce.logger
 
 logger = oce.logger.getLogger(__name__)
@@ -93,42 +99,13 @@ class SQLiteProvider(DataProvider):
         logger.info("Searching for '{0}'.".format(query))
 
         try:
-            # Prepare the FTS subquery: We'll only select docid to prevent
-            # loading everything to memory (docid can be taken straight from
-            # the FTS index)
-            # Rough benchmarking -- Search times for query "a*"
-            # 1) Ordering on `rowid` instead of `docid`: 21.986s
-            # 2) Ordering on `docid` but without limiting subquery: 7.049s
-            # 3) Ordering on `docid` with limited subquery: 3.538s
-            search = self.session.query(RecordsFTS.docid)
-            filter_string = RecordsFTS.__tablename__ + " MATCH :text"
-            search = search.filter(
-                sqlalchemy.sql.expression.text(filter_string)
-            ).params(
-                text=query
-            ).order_by(RecordsFTS.docid)
+            # Get the results for the query, hitting the memoisation caches
+            # if we can.
+            count = self._cached_search_results_count(query)
+            logger.debug(self._cached_search_results_count.cache_info())
 
-            count = search.count()
-
-            if offset > 0:
-                search = search.offset(offset)
-            if limit > 0:
-                search = search.limit(limit)
-            search = search.subquery()
-
-            # And now the main query
-            main = self.session.query(Records) \
-                .join(search, Records.rowid == search.c.docid) \
-                .order_by(Records.rowid)
-
-            logger.debug(
-                "Executing SQL: {}".format(
-                    str(main.statement.compile(
-                        dialect=sqlalchemy.dialects.sqlite.dialect()))
-                )
-            )
-
-            results = [row.dictionary for row in main]
+            results = self._cached_search_results(query, offset, limit)
+            logger.debug(self._cached_search_results.cache_info())
 
             elapsed = "{:.3f}".format(timeit.default_timer() - start_time)
             return {'total': count, 'results': results, 'query': return_query,
@@ -166,12 +143,61 @@ class SQLiteProvider(DataProvider):
                                     str(value).replace('\n', '\\n')
                                     ))
                 setattr(row, field, value)
+
                 self.session.commit()
+
+            # Also clear all memoisation caches, in case the update
+            # invalidates their results
+            self._clear_caches()
+
             return 'success'
         except sqlalchemy.exc.SQLAlchemyError as e:
             # Uh oh.
             logger.error(e)
             return 'error'
+
+    # Literal SQL
+    def execute_orm_filter(self, where_conditions, table="Records"):
+        """
+        Executes a select on the specified table with a literal where clause.
+        Uses the SQLAlchemy ORM, so results are dictionaries.
+        """
+        try:
+            _table = globals()[table]
+            if not isinstance(_table,
+                              sqlalchemy.ext.declarative.api.DeclarativeMeta):
+                raise KeyError
+        except KeyError:
+            # The specified table wasn't properly defined.
+            logger.error(
+                "Could not find ORM mappings for table: {}".format(table)
+            )
+            return "error"
+
+        return [row.dictionary for row in
+                self.session.query(_table).filter(
+                    sqlalchemy.sql.expression.text(where_conditions))]
+
+    def execute_literal(self, query, limit=0):
+        """
+        Executes a literal sql query on the DB.
+        Bypasses the ORM, so results are tuples.
+        Raises an error if the result set is larger than limit, if limit is
+        specified.
+        """
+        try:
+            results = [row for row in
+                       self.session.execute(
+                           sqlalchemy.sql.expression.text(query))]
+            if 0 < limit < len(results):
+                raise oce.exceptions.CustomError(
+                    "Too many results from literal SQL query.\r\n"
+                    "(Got {}, limit was {})".format(
+                        len(results), limit)
+                )
+            return results
+        except Exception as e:
+            return "Server returned an error:\r\n{}".format(str(e))
 
     # ===============
     # Private helpers
@@ -292,3 +318,59 @@ class SQLiteProvider(DataProvider):
 
     def debug(self):
         pass
+
+    @functools.lru_cache(maxsize=128)
+    def _cached_search_results_count(self, query):
+        """
+        Memoise the relatively expensive count() function on search results
+        `query` should be the actual query string.
+        """
+        search = self.session.query(RecordsFTS.docid)
+        filter_string = RecordsFTS.__tablename__ + " MATCH :text"
+        search = search.filter(
+            sqlalchemy.sql.expression.text(filter_string)
+        ).params(
+            text=query
+        ).order_by(RecordsFTS.docid)
+        return search.count()
+
+    @functools.lru_cache(maxsize=128)
+    def _cached_search_results(self, query, offset, limit):
+        """
+        Memoised call to get the results of a search query; useful when the
+        user is thumbing through the results pages without making modifications.
+        """
+        # Prepare the FTS subquery: We'll only select docid to prevent
+        # loading everything to memory (docid can be taken straight from
+        # the FTS index)
+        # Rough benchmarking -- Search times for query "a*"
+        # 1) Ordering on `rowid` instead of `docid`: 21.986s
+        # 2) Ordering on `docid` but without limiting subquery: 7.049s
+        # 3) Ordering on `docid` with limited subquery: 3.538s
+        search = self.session.query(RecordsFTS.docid)
+        filter_string = RecordsFTS.__tablename__ + " MATCH :text"
+        search = search.filter(
+            sqlalchemy.sql.expression.text(filter_string)
+        ).params(
+            text=query
+        ).order_by(RecordsFTS.docid)
+
+        if offset > 0:
+            search = search.offset(offset)
+        if limit > 0:
+            search = search.limit(limit)
+        search = search.subquery()
+
+        # And now the main query
+        main = self.session.query(Records) \
+            .join(search, Records.rowid == search.c.docid) \
+            .order_by(Records.rowid)
+
+        return [row.dictionary for row in main]
+
+    def _clear_caches(self):
+        """
+        Clear all memoisation caches that are in use
+        """
+        self._cached_search_results_count.cache_clear()
+        self._cached_search_results.cache_clear()

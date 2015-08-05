@@ -1,7 +1,13 @@
+# Inclusions
+!.gitignore
+!motd.txt
+
+# Hidden files
+.*
+
 # Data files should be provided by user
 *.txt
 *.db
-!motd.txt
 
 # Saved state (e.g., trained classifiers)
 *.pickle
