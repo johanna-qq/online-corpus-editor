@@ -4,13 +4,9 @@ A tool for browsing and annotating corpora online.
 
 ## Usage (Server)
 
-Install Python 3.4.3 and the dependencies listed in `main.py`.
+See `docs/INSTALL.md` for basic installation steps.
 
-Some of the dependencies are bundled in the `lib` directory; note that these will take precedence over versions installed elsewhere on the system (but only for the server script).
-
-You will need to provide your own corpus database and other data files; put them in the `data` folder.  See the configuration sections of `main.py` and `oce/config.py` for more information.
-
-From the server directory, run `start-server` (`start-server.bat` for Windows).
+After installation, run `start-server` from the server directory (`start-server.bat` for Windows).
 
     $ ./start-server
 
@@ -18,8 +14,9 @@ From the server directory, run `start-server` (`start-server.bat` for Windows).
 
 Serve the entire `client` directory with your favourite web server.
 
+## Usage (Client - Alpha)
 
-## Usage (Client -- Alpha)
+**Note**: The alpha client is *not* yet usable in its current state.
 
 Install `npm`, `bower` and `grunt-cli`.
 
