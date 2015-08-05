@@ -10,6 +10,8 @@ After installation, run `start-server` from the server directory (`start-server.
 
     $ ./start-server
 
+Pass `-h`/`--help` as an argument to see the other options available.
+
 ## Usage (Client)
 
 Serve the entire `client` directory with your favourite web server.
