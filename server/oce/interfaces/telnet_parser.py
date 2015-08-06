@@ -20,11 +20,11 @@ logger = oce.logger.getLogger(__name__)
 # sent to the server, have the function return None.
 command_table = {
     # Client administration
+    '!': 'command_repeat_last',
+    'commands': 'command_commands',
+    'motd': 'command_motd',
     'exit': 'command_exit',
     'quit': 'command_exit',
-    'motd': 'command_motd',
-    'commands': 'command_commands',
-    '!': 'command_repeat_last',
 
     # Server administration
     'restar': 'command_need_full',
@@ -32,15 +32,12 @@ command_table = {
     'shutdow': 'command_need_full',
     'shutdown': 'command_shutdown',
 
-    # Data functions
-    'meta': 'command_meta',
-    'query': 'command_query',
+    # Database functions
+    'db': 'command_db_branch',
 
     # Debug
     'debugsleep': 'command_debugsleep'
 }
-command_list = list(command_table.keys())
-command_list.sort()
 
 # The reply table maps the 'command' field of a reply from the server to a
 # function that formats the rest of the reply for sending back to the client.
@@ -109,23 +106,20 @@ class TelnetParser:
         communication_tasks = [asyncio.async(self._read_client_input()),
                                asyncio.async(self._read_server_output())]
         try:
-            done, pending = yield from asyncio.wait(communication_tasks,
-                                                    return_when=FIRST_COMPLETED)
+            yield from asyncio.wait(communication_tasks,
+                                    return_when=FIRST_COMPLETED)
         except CancelledError:
             logger.debug("[{}] Cancelling parser...".format(self.remote_ip))
-            done = []
-            pending = communication_tasks
 
         # If we're here, either the parser was cancelled or the client raised
         # a TelnetExit
         got_exception = None
-        for task in done:
-            e = task.exception()
-            if isinstance(e, Exception):
-                got_exception = e
-
         for task in communication_tasks:
-            if not task.done():
+            if task.done():
+                e = task.exception()
+                if isinstance(e, Exception):
+                    got_exception = e
+            else:
                 task.cancel()
                 yield from task
 
@@ -141,12 +135,12 @@ class TelnetParser:
                 try:
                     # Msg is a byte string
                     msg = msg.decode()
-                    yield from self.parse_client_input(msg)
+                    yield from self.parse_client_input(command_table, msg)
 
                 except UnicodeDecodeError:
                     # But it might contain undecodable characters
                     # (E.g., interrupts)
-                    yield from self.handle_undecodable(msg)
+                    yield from self._handle_undecodable(msg)
 
         except CancelledError:
             logger.debug(
@@ -174,12 +168,50 @@ class TelnetParser:
             yield from asyncio.wait([task])
 
     @asyncio.coroutine
-    def parse_client_input(self, msg):
+    def _handle_undecodable(self, msg):
         """
-        Parses commands sent by the client and transforms them into the
-        Dictionary format expected by the controller.
+        If the client sends us something strange, see what we can do about it
+        here.
+        """
+        if msg.startswith(b'\xff\xf4\xff\xfd\x06'):
+            # Client sent a ^C; we should drop them.
+            raise TelnetExit
+        else:
+            yield from self.send_to_client("Invalid command.")
 
-        If there is anything to send to the server, put it on self.parsed_input
+    @asyncio.coroutine
+    def send_to_client(self, msg, prompt=True):
+        """
+        Sends a message to the client, optionally displaying the prompt as well
+        """
+        # Wrap all output to the client
+        msg_lines = msg.splitlines()
+        msg_wrapped = ["\r\n".join(self.textwrap.wrap(line)) for line in
+                       msg_lines]
+        msg = "\r\n".join(msg_wrapped)
+
+        # Leading and trailing newlines for non-empty messages
+        if msg != '':
+            msg = "\r\n{}\r\n\r\n".format(msg)
+
+        if prompt:
+            to_client = "{}{}".format(msg, self.prompt)
+        else:
+            to_client = msg
+        yield from self.client_output.put(to_client)
+
+    @asyncio.coroutine
+    def send_to_server(self, request):
+        """
+        Sends a request payload to the server.
+        """
+        yield from self.parsed_input.put(request)
+
+    @asyncio.coroutine
+    def parse_client_input(self, fn_table, msg):
+        """
+        Parses commands sent by the client against the function table
+        provided.
         """
         if not msg.startswith("!"):
             self.last_command = msg
@@ -189,11 +221,14 @@ class TelnetParser:
             yield from self.send_to_client('')
             return
 
+        fn_list = list(fn_table.keys())
+        fn_list.sort()
+
         command_name = command_array.pop(0)
         command_fn = ''
-        for command in command_list:
+        for command in fn_list:
             if command.startswith(command_name):
-                command_fn = command_table[command]
+                command_fn = fn_table[command]
                 break
         if command_fn == '':
             # We didn't find a match in the command table
@@ -242,57 +277,35 @@ class TelnetParser:
         if formatted is not None:
             yield from self.send_to_client(formatted)
 
-    @asyncio.coroutine
-    def send_to_client(self, msg, prompt=True):
-        """
-        Sends a message to the client, optionally displaying the prompt as well
-        """
-        # Wrap all output to the client
-        msg_lines = msg.splitlines()
-        msg_wrapped = ["\r\n".join(self.textwrap.wrap(line)) for line in
-                       msg_lines]
-        msg = "\r\n".join(msg_wrapped)
-
-        # Leading and trailing newlines for non-empty messages
-        if msg != '':
-            msg = "\r\n{}\r\n\r\n".format(msg)
-
-        if prompt:
-            to_client = "{}{}".format(msg, self.prompt)
-        else:
-            to_client = msg
-        yield from self.client_output.put(to_client)
-
-    @asyncio.coroutine
-    def send_to_server(self, request):
-        """
-        Sends a request payload to the server.
-        """
-        yield from self.parsed_input.put(request)
-
-    @asyncio.coroutine
-    def handle_undecodable(self, msg):
-        """
-        If the client sends us something strange, see what we can do about it
-        here.
-        """
-        if msg.startswith(b'\xff\xf4\xff\xfd\x06'):
-            # Client sent a ^C; we should drop them.
-            raise TelnetExit
-        else:
-            yield from self.send_to_client("Invalid command.")
-
     # === Command Functions ===
     @asyncio.coroutine
     def command_repeat_last(self):
         """
         self.last_command is updated by self.parse_client_input
         """
-        yield from self.parse_client_input(self.last_command)
+        yield from self.parse_client_input(command_table, self.last_command)
+
+    @asyncio.coroutine
+    def command_commands(self):
+        # Todo: This should be nicer.
+        command_list = list(command_table.keys())
+        command_list.sort()
+        data = "Commands:\r\n{}".format(" ".join(command_list))
+        yield from self.send_to_client(data)
+
+    @asyncio.coroutine
+    def command_motd(self):
+        request = {'command': 'motd'}
+        yield from self.send_to_server(request)
 
     @asyncio.coroutine
     def command_exit(self):
         raise TelnetExit
+
+    @asyncio.coroutine
+    def command_need_full(self):
+        yield from self.send_to_client("You need to type that command out in "
+                                       "full.")
 
     @asyncio.coroutine
     def command_restart(self):
@@ -309,25 +322,37 @@ class TelnetParser:
         yield from self.send_to_server(request)
 
     @asyncio.coroutine
-    def command_motd(self):
-        request = {'command': 'motd'}
-        yield from self.send_to_server(request)
+    def command_db_branch(self, *args):
+        """
+        Branches off into various db operations.
+        """
+        branch_table = {
+            # Meta-info
+            'meta': 'command_meta',
+
+            # Data manipulation
+            'query': 'command_query',
+
+            # Database structure
+            'drop': 'command_drop',
+            'recreate': 'command_recreate'
+        }
+
+        if len(args) == 0:
+            branch_list = list(branch_table.keys())
+            branch_list.sort()
+            yield from self.send_to_client("You need to specify a DB "
+                                           "operation to perform.\r\n"
+                                           "Options are:\r\n"
+                                           "{}".format(" ".join(branch_list)))
+            return
+
+        yield from self.parse_client_input(branch_table, " ".join(args))
 
     @asyncio.coroutine
     def command_meta(self):
         request = {'command': 'meta'}
         yield from self.send_to_server(request)
-
-    @asyncio.coroutine
-    def command_commands(self):
-        # Todo: This should be nicer.
-        data = "Commands:\r\n{}".format(" ".join(command_list))
-        yield from self.send_to_client(data)
-
-    @asyncio.coroutine
-    def command_need_full(self):
-        yield from self.send_to_client("You need to type that command out in "
-                                       "full.")
 
     @asyncio.coroutine
     def command_query(self, *args):
@@ -365,10 +390,45 @@ class TelnetParser:
         yield from self.send_to_server(request)
 
     @asyncio.coroutine
+    def command_drop(self, *args):
+        """
+        See what the client wants to drop, then do it.
+        """
+        if len(args) == 0:
+            yield from self.send_to_client("You need to specify a target to "
+                                           "drop.")
+            return
+
+        request = {
+            'command': 'drop',
+            'target': args[0]
+        }
+        yield from self.send_to_server(request)
+
+    @asyncio.coroutine
+    def command_recreate(self, *args):
+        """
+        See what the client wants to recreate, then do it.
+        """
+        if len(args) == 0:
+            yield from self.send_to_client("You need to specify a target to "
+                                           "rebuild.")
+            return
+
+        request = {
+            'command': 'recreate',
+            'target': args[0]
+        }
+        yield from self.send_to_server(request)
+
+    @asyncio.coroutine
     def command_debugsleep(self, *args):
+        if len(args) == 0:
+            yield from self.send_to_client("Syntax: debugsleep [seconds]")
+            return
         for x in range(0, int(args[0])):
             yield from asyncio.sleep(1)
-            yield from self.send_to_client("\r\n**Tick**")
+            yield from self.send_to_client("\r\n** Zzz **")
 
     # === Format Functions ===
     @asyncio.coroutine

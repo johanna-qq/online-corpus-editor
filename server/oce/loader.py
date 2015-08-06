@@ -19,7 +19,7 @@ class Loader:
         """
         self.prev_modules = sys.modules.copy()
         self.logger = importlib.import_module(logger_mod).getLogger(__name__)
-        self.logger.info("Loader: Now tracking new imports.")
+        self.logger.info("Loader: Now tracking system components.")
 
     def init(self, *args, **kwargs):
         """

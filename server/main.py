@@ -4,17 +4,25 @@
 """
 Dependencies
 ============
-Python 3.4.3
-WebSockets (https://pypi.python.org/pypi/websockets)
-SQLAlchemy (https://pypi.python.org/pypi/SQLAlchemy/1.0.4)
-SQLite with FTS support (https://sqlite.org/fts3.html)
- |- [Bundled] Windows DLL and Linux library with Enhanced Query Syntax
-PyEnchant (https://pythonhosted.org/pyenchant/)
- |- Also see: https://github.com/rfk/pyenchant/issues/45
-Numpy (http://www.numpy.org/)
-NLTK (http://www.nltk.org/)
- |- Also use the NLTK downloader to install the following NLTK package(s):
-     |- punkt
+* Python 3.4.3
+
+* WebSockets (https://pypi.python.org/pypi/websockets)
+
+* SQLAlchemy (https://pypi.python.org/pypi/SQLAlchemy/1.0.4)
+
+* SQLite with FTS support (https://sqlite.org/fts3.html)
+   |- [Bundled] Windows DLL and Linux library with Enhanced Query Syntax
+   |- [Bundled] FTS Tokeniser bindings
+        (https://github.com/hideaki-t/sqlite-fts-python/)
+
+* PyEnchant (https://pythonhosted.org/pyenchant/)
+   |- Also see: https://github.com/rfk/pyenchant/issues/45
+
+* Numpy (http://www.numpy.org/)
+
+* NLTK (http://www.nltk.org/)
+   |- Also use the NLTK downloader to install the following NLTK package(s):
+       |- punkt
 
 Recommended
 ===========

@@ -1,0 +1,165 @@
+CREATE VIRTUAL TABLE tweets_fts USING fts4(
+    content="tweets",
+    rowid     INTEGER,
+    fullscan  INTEGER,
+    content   TEXT,
+    flag      BOOLEAN,
+    category  INTEGER,
+    comment   TEXT,
+    tag       TEXT,
+    language  TEXT,
+    tokenize=oce
+)
+
+CREATE TABLE tweets(
+    rowid     INTEGER PRIMARY KEY,
+    fullscan  INTEGER DEFAULT 1,
+    content   TEXT,
+    flag      BOOLEAN,
+    category  INTEGER,
+    comment   TEXT,
+    tag       TEXT,
+    language  TEXT
+)
+
+CREATE VIRTUAL TABLE tweets_suffixes USING fts4(
+    content="",
+    fullscan            INTEGER,
+    content_suffixes    TEXT,
+    comment_suffixes    TEXT,
+    tag_suffixes        TEXT,
+    language_suffixes   TEXT
+)
+
+INSERT INTO tweets_fts(tweets_fts) VALUES('rebuild')
+
+insert into tweets(rowid, fullscan, content, flag, category, comment, tag, language) select * from tweets_old
+
+insert into tweets select rowid, fullscan, content, flag, category, comment, tag, language from tweets_old
+
+CREATE TRIGGER fts_ai AFTER INSERT ON tweets
+BEGIN
+    INSERT INTO tweets_fts
+        (docid, fullscan, content, flag, category, comment, tag, language)
+    VALUES
+        (new.rowid, new.fullscan, tokenise(new.content), new.flag, new.category, tokenise(new.comment), tokenise(new.tag), tokenise(new.language));
+END
+
+Trigger: Before update
+
+CREATE TRIGGER fts_bu BEFORE UPDATE ON tweets
+BEGIN
+    DELETE FROM tweets_fts WHERE docid=old.rowid;
+END
+
+Trigger: After update
+
+CREATE TRIGGER fts_au AFTER UPDATE ON tweets
+BEGIN
+    INSERT INTO tweets_fts
+        (docid, fullscan, content, flag, category, comment, tag, language)
+    VALUES
+        (new.rowid, new.fullscan, tokenise(new.content), new.flag, new.category, tokenise(new.comment), tokenise(new.tag), tokenise(new.language));
+END
+
+Trigger: Before delete
+
+CREATE TRIGGER fts_bd BEFORE DELETE ON tweets
+BEGIN
+    DELETE FROM tweets_fts WHERE docid=old.rowid;
+END
+============================
+
+CREATE TRIGGER suffixes_ai AFTER INSERT ON tweets
+BEGIN
+    INSERT INTO tweets_suffixes
+        (docid, fullscan, content_suffixes, comment_suffixes, tag_suffixes, language_suffixes)
+    VALUES
+        (new.rowid, new.fullscan, suffixes(new.content), suffixes(new.comment), suffixes(new.tag), suffixes(new.language));
+END
+
+Trigger: Before update
+
+CREATE TRIGGER suffixes_bu BEFORE UPDATE ON tweets
+BEGIN
+    DELETE FROM tweets_suffixes WHERE docid=old.rowid;
+END
+
+Trigger: After update
+
+CREATE TRIGGER suffixes_au AFTER UPDATE ON tweets
+BEGIN
+    INSERT INTO tweets_suffixes
+        (docid, fullscan, content_suffixes, comment_suffixes, tag_suffixes, language_suffixes)
+    VALUES
+        (new.rowid, new.fullscan, suffixes(new.content), suffixes(new.comment), suffixes(new.tag), suffixes(new.language));
+END
+
+Trigger: Before delete
+
+CREATE TRIGGER suffixes_bd BEFORE DELETE ON tweets
+BEGIN
+    DELETE FROM tweets_suffixes WHERE docid=old.rowid;
+END
+
+-----------
+INSERT INTO tweets_toy VALUES (1, 1, 'morning humans👬👫👭 http://t.co/zNSACzkgrp', 1, 0, '', '', '');
+INSERT INTO tweets_toy VALUES (2, 1, 'This.is   a test of the EMERGenCY.broadcast system', 1, 0, '', '', '');
+INSERT INTO tweets_toy VALUES (3, 1, 'More Unicode😂 stuff 😂 that trips up the simple tokeniser😂😂😂', 1, 0, '', '', '');
+
+
+[x for x in test.tokenize("morning humans👬👫👭 http://t.co/zNSACzkgrp")]
+
+------------------------
+
+import oce.providers.sqlite_debug
+conn, c = oce.providers.sqlite_debug.main()
+c.execute("INSERT INTO fts_test(docid, fullscan, content, flag, category, comment, tag, language, suffixes) VALUES(5000000, 1, 'This is a test', 0, 0, '',  'tags: Test Test2', '', NULL)")
+
+
+INSERT INTO tweets_suffixes(docid, fullscan, content_suffixes, comment_suffixes, tag_suffixes, language_suffixes) SELECT rowid, fullscan, suffixes(content), suffixes(comment), suffixes(tag), suffixes(language) FROM tweets LIMIT 100
+
+SELECT * FROM tweets 
+    JOIN (
+        SELECT docid FROM tweets_fts
+            WHERE tweets_fts MATCH 'a* suffixes:drop'
+            ORDER BY docid
+            LIMIT 100
+    ) AS anon_1 ON tweets.rowid = anon_1.docid
+    ORDER BY tweets.rowid
+
+SELECT * FROM tweets
+    JOIN (
+        SELECT tweets_fts.docid FROM tweets_fts
+            JOIN (
+                SELECT tweets_suffixes.docid FROM tweets_suffixes
+                    WHERE tweets_suffixes MATCH 'tag_suffixes:drop'
+                    ORDER BY tweets_suffixes.docid
+            ) AS anon_1 ON tweets_fts.docid = anon_1.docid
+            WHERE tweets_fts MATCH 'a*'
+            ORDER BY tweets_fts.docid
+            LIMIT 100
+    ) AS anon_2 on tweets.rowid = anon_2.docid
+    ORDER BY tweets.rowid
+
+
+SELECT * FROM tweets 
+    JOIN (
+        SELECT docid FROM tweets_fts
+            WHERE tweets_fts MATCH 'comment:cmt suffixes:z'
+            ORDER BY docid
+    ) AS anon_1 ON tweets.rowid = anon_1.docid
+    ORDER BY tweets.rowid
+
+SELECT * FROM tweets
+    JOIN (
+        SELECT tweets_fts.docid FROM tweets_fts
+            JOIN (
+                SELECT tweets_suffixes.docid FROM tweets_suffixes
+                    WHERE tweets_suffixes MATCH 'content_suffixes:z'
+                    ORDER BY tweets_suffixes.docid
+            ) AS anon_1 ON tweets_fts.docid = anon_1.docid
+            WHERE tweets_fts MATCH 'i'
+            ORDER BY tweets_fts.docid
+    ) AS anon_2 on tweets.rowid = anon_2.docid
+    ORDER BY tweets.rowid

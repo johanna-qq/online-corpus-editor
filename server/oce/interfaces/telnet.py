@@ -181,6 +181,7 @@ class TelnetClient(ClientInterface):
         logger.info("[{}] Cleanup complete.".format(self.remote_ip))
 
         if got_exception is not None:
+            print(got_exception)
             raise got_exception
 
     @asyncio.coroutine

@@ -1,0 +1,143 @@
+"""
+Taken with minimal edits from:
+https://github.com/hideaki-t/sqlite-fts-python/
+"""
+import sys
+import ctypes
+from ctypes import POINTER, CFUNCTYPE
+import struct
+
+SQLITE_OK = 0
+SQLITE_DONE = 101
+
+
+class sqlite3_tokenizer_module(ctypes.Structure):
+    pass
+
+
+class sqlite3_tokenizer(ctypes.Structure):
+    _fields_ = [(str("pModule"), POINTER(sqlite3_tokenizer_module)),
+                (str("t"), ctypes.py_object)]
+
+
+class sqlite3_tokenizer_cursor(ctypes.Structure):
+    _fields_ = [(str("pTokenizer"), POINTER(sqlite3_tokenizer)),
+                (str("tokens"), ctypes.py_object),
+                (str("offset"), ctypes.c_int),
+                (str("pos"), ctypes.c_int)]
+
+
+xCreate = CFUNCTYPE(ctypes.c_int, ctypes.c_int, POINTER(ctypes.c_char_p),
+                    POINTER(POINTER(sqlite3_tokenizer)))
+xDestroy = CFUNCTYPE(ctypes.c_int, POINTER(sqlite3_tokenizer))
+xOpen = CFUNCTYPE(ctypes.c_int, POINTER(sqlite3_tokenizer),
+                  ctypes.c_char_p, ctypes.c_int,
+                  POINTER(POINTER(sqlite3_tokenizer_cursor)))
+xClose = CFUNCTYPE(ctypes.c_int, POINTER(sqlite3_tokenizer_cursor))
+xNext = CFUNCTYPE(ctypes.c_int, POINTER(sqlite3_tokenizer_cursor),
+                  POINTER(ctypes.c_char_p), POINTER(ctypes.c_int),
+                  POINTER(ctypes.c_int), POINTER(ctypes.c_int),
+                  POINTER(ctypes.c_int))
+
+sqlite3_tokenizer_module._fields_ = [
+    (str("iVersion"), ctypes.c_int), (str("xCreate"), xCreate),
+    (str("xDestroy"), xDestroy), (str("xOpen"), xOpen),
+    (str("xClose"), xClose), (str("xNext"), xNext)]
+
+
+class Tokenizer:
+    """ Tokenizer base class """
+
+    def tokenize(self, text):
+        """ Tokenize given unicode text. Yields each tokenized token, start
+        position (in bytes), end position (in bytes)"""
+        yield self.yield_token(text, 0, len(text))
+
+    def yield_token(self, text, start, end):
+        """
+        Yields the token in `text` between positions `start` and `end` in
+        the format expected by sqlite_tokeniser
+        """
+        token = text[start:end]
+        length_bytes = len(token.encode('utf-8'))
+        start_bytes = len(text[:start].encode('utf-8'))
+        return token, start_bytes, start_bytes + length_bytes
+
+
+tokenizer_modules = {}
+"""hold references to prevent GC"""
+
+
+def make_tokenizer_module(tokenizer):
+    """ make tokenizer module """
+    tokenizers = {}
+    cursors = {}
+
+    def xcreate(argc, argv, ppTokenizer):
+        tkn = sqlite3_tokenizer()
+        tkn.t = tokenizer
+        tokenizers[ctypes.addressof(tkn)] = tkn
+        ppTokenizer[0] = ctypes.pointer(tkn)
+        return SQLITE_OK
+
+    def xdestroy(pTokenizer):
+        del (tokenizers[ctypes.addressof(pTokenizer[0])])
+        return SQLITE_OK
+
+    def xopen(pTokenizer, pInput, nInput, ppCursor):
+        cur = sqlite3_tokenizer_cursor()
+        cur.pTokenizer = pTokenizer
+        cur.tokens = pTokenizer[0].t.tokenize(pInput.decode('utf-8'))
+        cur.pos = 0
+        cur.offset = 0
+        cursors[ctypes.addressof(cur)] = cur
+        ppCursor[0] = ctypes.pointer(cur)
+        return SQLITE_OK
+
+    def xnext(pCursor, ppToken, pnBytes,
+              piStartOffset, piEndOffset, piPosition):
+        try:
+            cur = pCursor[0]
+
+            while True:
+                normalized, inputBegin, inputEnd = next(cur.tokens)
+                normalized = normalized.encode('utf-8')
+                if normalized:
+                    break
+
+            ppToken[0] = normalized
+            pnBytes[0] = len(normalized)
+            piStartOffset[0] = inputBegin
+            piEndOffset[0] = inputEnd
+            cur.offset = inputEnd
+            piPosition[0] = cur.pos
+            cur.pos += 1
+        except StopIteration:
+            return SQLITE_DONE
+        return SQLITE_OK
+
+    def xclose(pCursor):
+        del (cursors[ctypes.addressof(pCursor[0])])
+        return SQLITE_OK
+
+    tokenizer_module = sqlite3_tokenizer_module(
+        0,
+        xCreate(xcreate),
+        xDestroy(xdestroy),
+        xOpen(xopen),
+        xClose(xclose),
+        xNext(xnext))
+    return tokenizer_module
+
+
+def register_tokenizer(c, name, tokenizer_module):
+    """ register tokenizer module with SQLite connection. """
+    if sys.version_info.major == 2:
+        global buffer
+    else:
+        buffer = lambda x: x
+    module_addr = ctypes.addressof(tokenizer_module)
+    address_blob = buffer(struct.pack("P", module_addr))
+    r = c.execute('SELECT fts3_tokenizer(?, ?)', (name, address_blob))
+    tokenizer_modules[module_addr] = tokenizer_module
+    return r

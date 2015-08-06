@@ -10,6 +10,7 @@ import sqlalchemy
 import sqlalchemy.dialects
 import sqlalchemy.orm
 import sqlalchemy.sql.expression
+import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.ext.declarative.api
 
@@ -32,6 +33,12 @@ RecordsFTS = SQLAlchemyORM.RecordsFTS
 RecordCount = SQLAlchemyORM.RecordCount
 RecordTags = SQLAlchemyORM.RecordTags
 
+from oce.providers.sqlite_tokeniser import make_tokenizer_module
+from oce.providers.sqlite_tokeniser import Tokenizer
+from oce.providers.sqlite_tokeniser import register_tokenizer
+
+from oce.providers.sqlite_schema import db_schema
+
 
 class SQLiteProvider(DataProvider):
     # Startup/Shutdown
@@ -52,11 +59,16 @@ class SQLiteProvider(DataProvider):
             if option[0] == "ENABLE_FTS3_PARENTHESIS":
                 self.enhanced_query_syntax = True
 
-        # Prep the ORM session
+        # Prep the DB connection
         self.engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
+        sqlalchemy.event.listen(self.engine, 'connect', self._setup_connection)
+        self.engine.connect()
+
+        # ... and the ORM session
         self.session = sqlalchemy.orm.sessionmaker(bind=self.engine)()
-        logger.info("SQLite data provider initialised -- No connections made "
-                    "yet. ({0})".format(self.db_file))
+        logger.info(
+            "SQLite data provider initialised. ({0})".format(self.db_file)
+        )
 
     def shutdown(self):
         self.session.commit()
@@ -185,19 +197,94 @@ class SQLiteProvider(DataProvider):
         Raises an error if the result set is larger than limit, if limit is
         specified.
         """
+        start_time = timeit.default_timer()
         try:
-            results = [row for row in
-                       self.session.execute(
-                           sqlalchemy.sql.expression.text(query))]
+            results, time = self._execute_literal_statements([query])
             if 0 < limit < len(results):
                 raise oce.exceptions.CustomError(
                     "Too many results from literal SQL query.\r\n"
-                    "(Got {}, limit was {})".format(
-                        len(results), limit)
+                    "(Got {}, limit was {})\r\n"
+                    "Took {:.3f}s.".format(len(results), limit, time)
                 )
-            return results
+            return results, time
         except Exception as e:
-            return "Server returned an error:\r\n{}".format(str(e))
+            return ("Server returned a message after {:.3f}s:\r\n"
+                    "{}\r\n".format(timeit.default_timer() - start_time,
+                                    str(e))
+                    )
+
+    # Database structure
+    def execute_drop(self, target):
+        """
+        Drops various DB structures on request
+        """
+        start_time = timeit.default_timer()
+        try:
+            statements = []
+            if target == "fts":
+                statements += db_schema["drop_fts"]
+            elif target == "suffixes":
+                statements += db_schema["drop_suffixes"]
+            elif target == "triggers":
+                statements += db_schema["drop_triggers"]
+            elif target == "all":
+                statements += db_schema["drop_fts"]
+                statements += db_schema["drop_suffixes"]
+                statements += db_schema["drop_triggers"]
+            else:
+                raise oce.exceptions.CustomError(
+                    "'{}' was not recognised as a valid target.\r\n"
+                    "Options are:\r\n"
+                    "fts suffixes triggers all".format(target)
+                )
+
+            results, time = self._execute_literal_statements(statements)
+
+            return results, time
+        except Exception as e:
+            return ("Server returned a message after {:.3f}s:\r\n"
+                    "{}\r\n".format(timeit.default_timer() - start_time,
+                                    str(e))
+                    )
+
+    def execute_recreate(self, target):
+        """
+        Recreates various DB structures on request
+        """
+        start_time = timeit.default_timer()
+        try:
+            statements = []
+            if target == "fts":
+                statements += db_schema["drop_fts"]
+                statements += db_schema["create_fts"]
+            elif target == "suffixes":
+                statements += db_schema["drop_suffixes"]
+                statements += db_schema["create_suffixes"]
+            elif target == "triggers":
+                statements += db_schema["drop_triggers"]
+                statements += db_schema["create_triggers"]
+            elif target == "all":
+                statements += db_schema["drop_fts"]
+                statements += db_schema["create_fts"]
+                statements += db_schema["drop_suffixes"]
+                statements += db_schema["create_suffixes"]
+                statements += db_schema["drop_triggers"]
+                statements += db_schema["create_triggers"]
+            else:
+                raise oce.exceptions.CustomError(
+                    "'{}' was not recognised as a valid target.\r\n"
+                    "Options are:\r\n"
+                    "fts suffixes triggers all".format(target)
+                )
+
+            results, time = self._execute_literal_statements(statements)
+
+            return results, time
+        except Exception as e:
+            return ("Server returned a message after {:.3f}s:\r\n"
+                    "{}\r\n".format(timeit.default_timer() - start_time,
+                                    str(e))
+                    )
 
     # ===============
     # Private helpers
@@ -374,3 +461,161 @@ class SQLiteProvider(DataProvider):
         """
         self._cached_search_results_count.cache_clear()
         self._cached_search_results.cache_clear()
+
+    def _setup_connection(self, db_connection, _):
+        """
+        Sets up custom functions and the like when the DB connection is
+        initialised.
+        """
+        # Initialise our custom tokenisers
+        main_tokeniser = self.OCETokeniser()
+        tokeniser_module = make_tokenizer_module(main_tokeniser)
+        register_tokenizer(db_connection, 'oce', tokeniser_module)
+        suffix_module = make_tokenizer_module(self.OCESuffixes(main_tokeniser))
+        register_tokenizer(db_connection, 'oce_suffixes', suffix_module)
+
+    class OCETokeniser(Tokenizer):
+        """
+        Custom tokeniser:
+        1) Folds text to lower case
+        2) Treats all non-alphanumeric ASCII chars as delimiters
+        3) Each character outside the ASCII range is treated as one single
+           token
+        """
+
+        @functools.lru_cache(maxsize=256)
+        def _tokenize(self, text):
+            """
+            Memoised version of the tokeniser; returns a list instead of an
+            iterator.  This cache should not need to be cleared; any
+            modifications to the tokeniser will only take effect on restart
+            """
+            logger.debug('Tokenising: {}'.format(text))
+
+            tokenised_list = []
+            text = text.lower()
+
+            token_open = False
+            token_start = 0
+            token_end = 0
+            for char in text:
+                if re.match(r'[^a-zA-Z0-9]', char):
+                    # The character is non-alphanumeric.  If it is within the
+                    # ASCII range, close the current token and yield it.  If
+                    # not, yield it as a new token.
+                    if ord(char) <= 127:
+                        if token_open:
+                            # Was in token.  Yield token and advance cursors
+                            # to next character.
+                            token_open = False
+                            tokenised_list.append(self.yield_token(text,
+                                                                   token_start,
+                                                                   token_end))
+                            token_end += 1
+                            token_start = token_end
+                        else:
+                            # Was not in token.  Advance cursors in tandem.
+                            token_end += 1
+                            token_start += 1
+                    else:
+                        if token_open:
+                            # Was in token.  Yield and advance start cursor.
+                            token_open = False
+                            tokenised_list.append(self.yield_token(text,
+                                                                   token_start,
+                                                                   token_end))
+                            token_start = token_end
+
+                        # Yield one more character
+                        token_end += 1
+                        tokenised_list.append(self.yield_token(text,
+                                                               token_start,
+                                                               token_end))
+                        token_start = token_end
+                else:
+                    # In a token.  Move the end cursor.
+                    token_open = True
+                    token_end += 1
+
+            # Yield the last token
+            if token_open:
+                tokenised_list.append(self.yield_token(text,
+                                                       token_start,
+                                                       token_end))
+
+            return tokenised_list
+
+        def tokenize(self, text):
+            """
+            Reads along the given string, yielding tokens along the way.
+            Memoises the results of the tokenisation to minimise calculations.
+            """
+            iterator_list = self._tokenize(text)
+            return iter(iterator_list)
+
+    class OCESuffixes(Tokenizer):
+        """
+        Custom tokeniser:
+        1) Runs against OCETokeniser to get tokenised input string.
+        2) For each token in the input, returns the suffix array for that token
+           if the token has length > 1
+        """
+
+        def __init__(self, main_tokeniser):
+            self.records_processed = 0
+            self.columns_processed = 0
+            self.main_tokeniser = main_tokeniser
+
+        def tokenize(self, text):
+            # We want our output to be lowercase as well, but we'll feed
+            # main_tokeniser the original input so that memoisation works
+            lower_text = text.lower()
+            b_text = lower_text.encode('utf-8')
+
+            for token, b_start, b_end in self.main_tokeniser.tokenize(text):
+                if len(token) == 1:
+                    # One character token.  No need to extract suffixes.
+                    continue
+
+                # The start and end values given by OCETokeniser are in
+                # bytes. Convert them to characters.
+                c_before = len(b_text[:b_start].decode('utf-8'))
+
+                # Skip the first suffix (i.e., the whole token)
+                c_start = c_before + 1
+                c_end = c_before + len(token)
+                for suffix_start in range(c_start, c_end):
+                    yield self.yield_token(lower_text, suffix_start, c_end)
+
+            self.columns_processed += 1
+            if self.columns_processed == 7:
+                self.records_processed += 1
+                self.columns_processed = 0
+            logger.debug(
+                "OCESuffixes has looked at: "
+                "{} records, {} cols.".format(
+                    self.records_processed,
+                    self.columns_processed)
+            )
+
+    def _execute_literal_statements(self, statements):
+        """
+        Given a List of single SQL statements to execute, does so.
+        """
+        start_time = timeit.default_timer()
+        try:
+            assert (type(statements) is list and len(statements) > 0)
+            results = []
+
+            with self.engine.begin() as connection:
+                for statement in statements:
+                    raw = connection.execute(statement)
+                    if raw.returns_rows:
+                        results += raw.fetchall()
+
+            time = "{:.3f}".format(timeit.default_timer() - start_time)
+            return results, float(time)
+
+        except Exception as e:
+            logger.debug(e)
+            raise e

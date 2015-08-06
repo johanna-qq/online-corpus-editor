@@ -48,9 +48,13 @@ INSERT INTO tweets_fts(tweets_fts) VALUES('rebuild')
 ### Trigger: After insert
 
 ```sql
-CREATE TRIGGER fts_ai AFTER INSERT ON tweets
+CREATE TRIGGER fts_after_insert AFTER INSERT ON tweets
 BEGIN
     INSERT INTO tweets_fts
+        (docid, fullscan, content, flag, category, comment, tag, language)
+    VALUES
+        (new.rowid, new.fullscan, new.content, new.flag, new.category, new.comment, new.tag, new.language);
+    INSERT INTO tweets_suffixes
         (docid, fullscan, content, flag, category, comment, tag, language)
     VALUES
         (new.rowid, new.fullscan, new.content, new.flag, new.category, new.comment, new.tag, new.language);
@@ -61,18 +65,23 @@ END
 ### Trigger: Before update
 
 ```sql
-CREATE TRIGGER fts_bu BEFORE UPDATE ON tweets
+CREATE TRIGGER fts_before_update BEFORE UPDATE ON tweets
 BEGIN
     DELETE FROM tweets_fts WHERE docid=old.rowid;
+    DELETE FROM tweets_suffixes WHERE docid=old.rowid;
 END
 ```
 
 ### Trigger: After update
 
 ```sql
-CREATE TRIGGER fts_au AFTER UPDATE ON tweets
+CREATE TRIGGER fts_after_update AFTER UPDATE ON tweets
 BEGIN
     INSERT INTO tweets_fts
+        (docid, fullscan, content, flag, category, comment, tag, language)
+    VALUES
+        (new.rowid, new.fullscan, new.content, new.flag, new.category, new.comment, new.tag, new.language);
+    INSERT INTO tweets_suffixes
         (docid, fullscan, content, flag, category, comment, tag, language)
     VALUES
         (new.rowid, new.fullscan, new.content, new.flag, new.category, new.comment, new.tag, new.language);
@@ -82,9 +91,10 @@ END
 ### Trigger: Before delete
 
 ```sql
-CREATE TRIGGER fts_bd BEFORE DELETE ON tweets
+CREATE TRIGGER fts_before_delete BEFORE DELETE ON tweets
 BEGIN
     DELETE FROM tweets_fts WHERE docid=old.rowid;
+    DELETE FROM tweets_suffixes WHERE docid=old.rowid;
 END
 ```
 

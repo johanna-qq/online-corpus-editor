@@ -56,9 +56,10 @@ interface_classes = {
 
 # Name of the base table in the corpus database
 # From here, data providers may also expect to find:
-#   <main_table>_fts    - Full-text search table
-#   <main_table>_count  - Count of the total number of records in the corpus
-#   <main_table>_tags   - User tags used
+#   <main_table>_fts        - Full-text search table
+#   <main_table>_count      - Total number of records in the corpus
+#   <main_table>_tags       - User tags used
+#   <main_table>_suffixes   - Full-text search suffix table
 main_table = "tweets"
 
 # =======================

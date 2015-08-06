@@ -387,6 +387,12 @@ class Act:  # Hurr hurr
             limit = request["limit"]
         return self.provider.execute_literal(request['query'], limit=limit)
 
+    def exec_drop(self, request):
+        return self.provider.execute_drop(request['target'])
+
+    def exec_recreate(self, request):
+        return self.provider.execute_recreate(request['target'])
+
     @langid_function
     def exec_langid(self, request):
         """
