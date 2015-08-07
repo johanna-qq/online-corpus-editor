@@ -35,12 +35,12 @@ class Loader:
         Removes all OCE modules and external dependencies from the import cache;
         They will be reloaded when next imported.
         """
-        self.logger.info("Loader: Marking system modules for reload.")
+        self.logger.info("Loader: Marking system components for reload.")
         keep_modules = list(self.prev_modules.keys())
         current_modules = list(sys.modules.keys())
         for module in current_modules:
             if module not in keep_modules or module.startswith("oce"):
-                self.logger.debug(
-                    "Loader: Invalidating cached module -- {}".format(module)
-                )
+                # self.logger.debug(
+                #     "Loader: Invalidating cached module -- {}".format(module)
+                # )
                 del sys.modules[module]

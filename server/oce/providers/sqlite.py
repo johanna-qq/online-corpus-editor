@@ -59,9 +59,19 @@ class SQLiteProvider(DataProvider):
             if option[0] == "ENABLE_FTS3_PARENTHESIS":
                 self.enhanced_query_syntax = True
 
+        # For our suffix table tokeniser, we have two modes: When search_mode
+        # is False, all terms are expanded to their suffixes.  When
+        # search_mode is True, it acts like the normal tokeniser.  This
+        # reference will get filled in by _setup_connection().
+        # Also, since _setup_connection() gets called multiple times,
+        # make sure we pass them the same instances of the tokenisers.
+        self.main_tokeniser = self.OCETokeniser()
+        self.suffix_tokeniser = self.OCESuffixes(self.main_tokeniser)
+
         # Prep the DB connection
         self.engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
-        sqlalchemy.event.listen(self.engine, 'connect', self._setup_connection)
+        sqlalchemy.event.listen(self.engine, 'connect',
+                                self._setup_connection)
         self.engine.connect()
 
         # ... and the ORM session
@@ -406,6 +416,28 @@ class SQLiteProvider(DataProvider):
     def debug(self):
         pass
 
+    def _execute_literal_statements(self, statements):
+        """
+        Given a List of single SQL statements to execute, does so.
+        """
+        start_time = timeit.default_timer()
+        try:
+            assert (type(statements) is list and len(statements) > 0)
+            results = []
+
+            with self.engine.begin() as connection:
+                for statement in statements:
+                    raw = connection.execute(statement)
+                    if raw.returns_rows:
+                        results += raw.fetchall()
+
+            time = "{:.3f}".format(timeit.default_timer() - start_time)
+            return results, float(time)
+
+        except Exception as e:
+            logger.debug(e)
+            raise e
+
     @functools.lru_cache(maxsize=128)
     def _cached_search_results_count(self, query):
         """
@@ -466,12 +498,12 @@ class SQLiteProvider(DataProvider):
         """
         Sets up custom functions and the like when the DB connection is
         initialised.
+        Run multiple times by the engine.
         """
         # Initialise our custom tokenisers
-        main_tokeniser = self.OCETokeniser()
-        tokeniser_module = make_tokenizer_module(main_tokeniser)
+        tokeniser_module = make_tokenizer_module(self.main_tokeniser)
         register_tokenizer(db_connection, 'oce', tokeniser_module)
-        suffix_module = make_tokenizer_module(self.OCESuffixes(main_tokeniser))
+        suffix_module = make_tokenizer_module(self.suffix_tokeniser)
         register_tokenizer(db_connection, 'oce_suffixes', suffix_module)
 
     class OCETokeniser(Tokenizer):
@@ -484,16 +516,15 @@ class SQLiteProvider(DataProvider):
         """
 
         @functools.lru_cache(maxsize=256)
-        def _tokenize(self, text):
+        def tokenise_as_list(self, text):
             """
             Memoised version of the tokeniser; returns a list instead of an
             iterator.  This cache should not need to be cleared; any
             modifications to the tokeniser will only take effect on restart
             """
-            logger.debug('Tokenising: {}'.format(text))
+            logger.debug('Running OCETokeniser: {}'.format(text))
 
             tokenised_list = []
-            text = text.lower()
 
             token_open = False
             token_start = 0
@@ -526,7 +557,7 @@ class SQLiteProvider(DataProvider):
                                                                    token_end))
                             token_start = token_end
 
-                        # Yield one more character
+                        # Yield one more character (the non-ASCII one)
                         token_end += 1
                         tokenised_list.append(self.yield_token(text,
                                                                token_start,
@@ -547,11 +578,11 @@ class SQLiteProvider(DataProvider):
 
         def tokenize(self, text):
             """
-            Reads along the given string, yielding tokens along the way.
-            Memoises the results of the tokenisation to minimise calculations.
+            Expected to return an iterator over the tokens in `text`.
             """
-            iterator_list = self._tokenize(text)
-            return iter(iterator_list)
+            text = text.lower()
+            list_tokens = self.tokenise_as_list(text)
+            return iter(list_tokens)
 
     class OCESuffixes(Tokenizer):
         """
@@ -559,63 +590,62 @@ class SQLiteProvider(DataProvider):
         1) Runs against OCETokeniser to get tokenised input string.
         2) For each token in the input, returns the suffix array for that token
            if the token has length > 1
+
+        UNLESS:
+        1) If search_mode is True, returns only the output of OCETokeniser (
+           so that we don't unnecessarily process search queries)
         """
 
         def __init__(self, main_tokeniser):
-            self.records_processed = 0
-            self.columns_processed = 0
             self.main_tokeniser = main_tokeniser
+            self.search_mode = False
 
         def tokenize(self, text):
-            # We want our output to be lowercase as well, but we'll feed
-            # main_tokeniser the original input so that memoisation works
-            lower_text = text.lower()
-            b_text = lower_text.encode('utf-8')
+            """
+            Expected to return an iterator over the tokens in `text`.
+            """
+            text = text.lower()
+            list_suffixes = self.suffixes_as_list(text, self.search_mode)
+            print(self.suffixes_as_list.cache_info())
+            print(list_suffixes)
+            return iter(list_suffixes)
 
-            for token, b_start, b_end in self.main_tokeniser.tokenize(text):
+        @functools.lru_cache(maxsize=256)
+        def suffixes_as_list(self, text, search_mode):
+            """
+            Memoised version of the suffixer; returns a list instead of an
+            iterator.  This cache should not need to be cleared; any
+            modifications to the tokeniser will only take effect on restart
+            """
+            logger.debug(
+                "Running OCESuffixer: {}, search_mode: {}".format(text,
+                                                                  search_mode)
+            )
+
+            # The start and end values given by OCETokeniser are in bytes,
+            # but we prefer to work with characters; we'll convert them in the
+            # loop.
+            b_text = text.encode('utf-8')
+
+            main_tokenised = self.main_tokeniser.tokenise_as_list(text)
+            if search_mode:
+                return main_tokenised
+
+            tokenised_list = []
+            for token, b_start, b_end in main_tokenised:
                 if len(token) == 1:
                     # One character token.  No need to extract suffixes.
                     continue
 
-                # The start and end values given by OCETokeniser are in
-                # bytes. Convert them to characters.
+                # Byte position -> Character position
                 c_before = len(b_text[:b_start].decode('utf-8'))
 
                 # Skip the first suffix (i.e., the whole token)
                 c_start = c_before + 1
                 c_end = c_before + len(token)
                 for suffix_start in range(c_start, c_end):
-                    yield self.yield_token(lower_text, suffix_start, c_end)
+                    tokenised_list.append(self.yield_token(text,
+                                                           suffix_start,
+                                                           c_end))
 
-            self.columns_processed += 1
-            if self.columns_processed == 7:
-                self.records_processed += 1
-                self.columns_processed = 0
-            logger.debug(
-                "OCESuffixes has looked at: "
-                "{} records, {} cols.".format(
-                    self.records_processed,
-                    self.columns_processed)
-            )
-
-    def _execute_literal_statements(self, statements):
-        """
-        Given a List of single SQL statements to execute, does so.
-        """
-        start_time = timeit.default_timer()
-        try:
-            assert (type(statements) is list and len(statements) > 0)
-            results = []
-
-            with self.engine.begin() as connection:
-                for statement in statements:
-                    raw = connection.execute(statement)
-                    if raw.returns_rows:
-                        results += raw.fetchall()
-
-            time = "{:.3f}".format(timeit.default_timer() - start_time)
-            return results, float(time)
-
-        except Exception as e:
-            logger.debug(e)
-            raise e
+            return tokenised_list

@@ -262,7 +262,7 @@ class Act:  # Hurr hurr
                 client, request = task.result()
                 logger.debug(
                     "Watcher: Received client request: {}".format(
-                        str(request)[0:80]
+                        str(request)
                     )
                 )
                 # Remove the watch here; a new future will be generated for
