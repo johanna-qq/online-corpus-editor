@@ -45,7 +45,10 @@ command_table = {
 # suppress output to the client, have the function return None.
 format_table = {
     'default': 'format_raw',
-    'motd': 'format_raw'
+    'motd': 'format_raw',
+    'db_get_config': 'format_db_get_config',
+    'db_set_config': 'format_db_set_config',
+    'literal_query': 'format_literal_query'
 }
 
 
@@ -327,6 +330,9 @@ class TelnetParser:
         Branches off into various db operations.
         """
         branch_table = {
+            # Provider admin
+            'config': 'command_db_config',
+
             # Meta-info
             'meta': 'command_meta',
 
@@ -348,6 +354,26 @@ class TelnetParser:
             return
 
         yield from self.parse_client_input(branch_table, " ".join(args))
+
+    @asyncio.coroutine
+    def command_db_config(self, *args):
+        """
+        Gets/sets provider configuration options.
+        """
+        if len(args) == 0:
+            # Get config
+            request = {
+                'command': 'db_get_config'
+            }
+            yield from self.send_to_server(request)
+            return
+
+        request = {
+            'command': 'db_set_config',
+            'option': args[0],
+            'value': " ".join(args[1:])
+        }
+        yield from self.send_to_server(request)
 
     @asyncio.coroutine
     def command_meta(self):
@@ -435,6 +461,74 @@ class TelnetParser:
     def format_raw(self, reply):
         return str(reply)
 
+    @asyncio.coroutine
+    def format_db_get_config(self, reply):
+        output = "DB Provider Configuration\r\n" \
+                 "=========================\r\n" \
+                 "[Read-Only Options]\r\n\r\n"
+
+        # =======================================================
+        # Alignments and headers for configurable options section
+        name_width = 4
+        val_width = 5
+        configurable_list = [
+            {
+                "name": "Name",
+                "value": "Value",
+                "desc": "Description"
+            },
+            {
+                "name": "----",
+                "value": "-----",
+                "desc": "-----------"
+            }
+        ]
+        # =======================================================
+
+        for option in reply:
+            if option["read_only"]:
+                output += "o {}\r\n    {}\r\n\r\n".format(
+                    option["desc"], option["value"]
+                )
+            else:
+                # Might as well figure out the maximum column length here
+                name_width = max(name_width, len(option["name"]))
+                val_width = max(val_width, len(str(option["value"])))
+                configurable_list.append(option)
+
+        output += "[Configurable Options]\r\n\r\n"
+
+        for option in configurable_list:
+            output += "{name:<{name_width}}" \
+                      "{value:<{val_width}}" \
+                      "{desc}\r\n".format(name=option["name"],
+                                          value=str(option["value"]),
+                                          desc=option["desc"],
+                                          name_width=(name_width + 4),
+                                          val_width=(val_width + 4))
+
+        output += "\r\nUse 'db config <option_name> <new_value>' to change " \
+                  "any of the configurable options."
+        return output
+
+    @asyncio.coroutine
+    def format_db_set_config(self, reply):
+        if reply[1] == "invalid_value":
+            return "Invalid value given for '{}'.".format(reply[0])
+        elif reply[1] == "invalid_option":
+            return "'{}' is not a valid option.".format(reply[0])
+        else:
+            return "'{}' set to '{}'.".format(reply[0], str(reply[1]))
+
+    @asyncio.coroutine
+    def format_literal_query(self, reply):
+        warning_msg = "[Warning for Literal SQL Queries]\r\n" \
+                      "REMINDER: If the suffixer is not in search mode, " \
+                      "suffix search results will be inaccurate.  If the " \
+                      "suffixer is in search mode, rebuilding the suffix " \
+                      "table will not work. Use the 'db config' command to " \
+                      "switch between the two modes."
+        return "{}\r\n\r\n{}".format(str(reply), warning_msg)
 
 class TelnetExit(Exception):
     """

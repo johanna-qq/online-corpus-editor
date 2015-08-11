@@ -357,6 +357,12 @@ class Act:  # Hurr hurr
             'record': request['record']
         }
 
+    def exec_db_get_config(self, _):
+        return self.provider.get_config()
+
+    def exec_db_set_config(self, request):
+        return self.provider.set_config(request["option"], request["value"])
+
     def exec_meta(self, _):
         total = self.provider.fetch_total()
         tags = self.provider.fetch_tags()

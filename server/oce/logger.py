@@ -46,7 +46,9 @@ formatter.datefmt = '%Y-%m-%d %H:%M:%S'
 
 class AsciiStreamHandler(logging.StreamHandler):
     def emit(self, record):
-        record.msg = record.msg.encode('ascii', 'xmlcharrefreplace').decode()
+        # TODO: Remove if replacement working
+        # record.msg = record.msg.encode('ascii', 'xmlcharrefreplace').decode()
+        record.msg = ascii(record.msg)
         super().emit(record)
 
 

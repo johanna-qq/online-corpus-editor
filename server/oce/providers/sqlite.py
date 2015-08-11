@@ -88,6 +88,42 @@ class SQLiteProvider(DataProvider):
         self.session.close()
         logger.info("SQLite data provider shut down.")
 
+    # Provider administration
+
+    def get_config(self):
+        config = [
+            {
+                "desc": "DB file in use:",
+                "value": self.db_file,
+                "read_only": True
+            },
+            {
+                "desc": "FTS uses Enhanced Query Syntax:",
+                "value": self.enhanced_query_syntax,
+                "read_only": True
+            },
+            {
+                "name": "suffix_search",
+                "desc": "Is suffixer in search mode?",
+                "value": self.suffix_tokeniser.search_mode,
+                "read_only": False
+            }
+        ]
+        return config
+
+    def set_config(self, option, value):
+        if option == "suffix_search":
+            if value.lower() == "false":
+                self.suffix_tokeniser.search_mode = False
+                return [option, False]
+            elif value.lower() == "true":
+                self.suffix_tokeniser.search_mode = True
+                return [option, True]
+            else:
+                return option, "invalid_value"
+        else:
+            return option, "invalid_option"
+
     # Metadata
     def fetch_total(self):
         return self.session.query(RecordCount.count).scalar()
