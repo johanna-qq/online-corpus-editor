@@ -1,6 +1,12 @@
 """
 Defines the SQL statements that recreate the main DBs.
 Each key in db_schema is a List of single SQL statements.
+
+Notes: For FTS table options, "there may not be whitespace on either side of
+       the '=' character." (SQLite FTS docs)
+
+      To reduce clutter on the FTS tables, 'rowid' is not tokenised.
+
 """
 
 from oce.config import main_table
@@ -10,7 +16,6 @@ db_schema = {}
 db_schema["create_fts"] = ["""
 CREATE VIRTUAL TABLE {main_table}_fts USING fts4(
     content='{main_table}',
-    rowid     INTEGER,
     fullscan  INTEGER,
     content   TEXT,
     flag      BOOLEAN,
@@ -29,7 +34,6 @@ DROP TABLE IF EXISTS {main_table}_fts
 db_schema["create_suffixes"] = ["""
 CREATE VIRTUAL TABLE {main_table}_suffixes USING fts4(
     content='{main_table}',
-    rowid     INTEGER,
     fullscan  INTEGER,
     content   TEXT,
     flag      BOOLEAN,

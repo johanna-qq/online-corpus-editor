@@ -23,6 +23,8 @@ import oce.logger
 
 logger = oce.logger.getLogger(__name__)
 
+from oce.config import debug_mode
+
 from oce.providers.template import DataProvider
 from oce.providers.util import SQLAlchemyORM
 from oce.providers.util import fts_tag, fts_detag
@@ -30,6 +32,7 @@ from oce.providers.util import langid_normalise_language
 
 Records = SQLAlchemyORM.Records
 RecordsFTS = SQLAlchemyORM.RecordsFTS
+RecordsSuffixes = SQLAlchemyORM.RecordsSuffixes
 RecordCount = SQLAlchemyORM.RecordCount
 RecordTags = SQLAlchemyORM.RecordTags
 
@@ -105,34 +108,30 @@ class SQLiteProvider(DataProvider):
     def fetch_search_results(self, query, offset=0, limit=0):
         start_time = timeit.default_timer()
 
-        # Pre-process the query
-
-        # [Illegal characters and other invalid queries]
-        # If there's an odd number of double inverted commas, drop the last one
-        commas = re.findall('"', query)
-        if len(commas) % 2 == 1:
-            query = ''.join(query.rsplit(sep="\"", maxsplit=1))
-
-        # [Special commands]
+        # Pre-process the query.
         # We will return the query to the client, including canonical forms of
-        # special commands
-        query, return_query = self._process_query(query)
+        # special commands.
+        return_query, fts_query, suffixes_query = self._process_query(query)
 
-        logger.info("Searching for '{0}'.".format(query))
+        logger.info(
+            "Searching -- FTS:'{}', Suffixes:'{}'.".format(fts_query,
+                                                           suffixes_query)
+        )
 
         try:
             # Get the results for the query, hitting the memoisation caches
             # if we can.
-            count = self._cached_search_results_count(query)
-            logger.debug(self._cached_search_results_count.cache_info())
-
-            results = self._cached_search_results(query, offset, limit)
-            logger.debug(self._cached_search_results.cache_info())
-
+            count = self._cached_search_results_count(fts_query,
+                                                      suffixes_query)
+            results = self._cached_search_results(fts_query,
+                                                  suffixes_query,
+                                                  offset,
+                                                  limit)
             elapsed = "{:.3f}".format(timeit.default_timer() - start_time)
             return {'total': count, 'results': results, 'query': return_query,
                     'elapsed': elapsed, 'offset': offset}
-        except sqlalchemy.exc.SQLAlchemyError as e:
+        except (sqlalchemy.exc.SQLAlchemyError,
+                oce.exceptions.CustomError) as e:
             # Whoops.
             logger.error(e)
             return {'total': 0, 'results': 'error'}
@@ -300,17 +299,33 @@ class SQLiteProvider(DataProvider):
     # Private helpers
     # ===============
     def _process_query(self, query):
-        if self.enhanced_query_syntax:
-            # Maybe do something differently?
-            pass
+        """
+        Reads in a user-provided search query string, and prepares the
+        corresponding FTS MATCH terms.  Gets a bit messy because we're
+        accounting for both Standard Query Syntax and Enhanced Query Syntax
+        at the same time.
+        """
 
+        # [Illegal characters and other invalid queries]
+        # If there's an odd number of double inverted commas, drop the last one
+        commas = re.findall('"', query)
+        if len(commas) % 2 == 1:
+            query = ''.join(query.rsplit(sep="\"", maxsplit=1))
+        # Replace consecutive asterisks with a single asterisk
+        query = re.sub(r'[*][*]', "*", query)
+
+        # Begin processing the query proper.
         query_words = query.split()
-        query = ''
+
         return_query = ''
+        fts_query = ''
+        suffixes_query = ''
 
         # If all the search terms are negative, we'll force a full table scan
         # (SQLite FTS does not support searching for only negative terms)
-        found_positive = False
+        suffixes_found_positive = False
+        fts_found_positive = False
+        prev_was_not = False
 
         for word in query_words:
             # The FTS engine doesn't care about case, except where the word is
@@ -319,47 +334,109 @@ class SQLiteProvider(DataProvider):
             if word != "OR" and word != "AND" and word != "NOT":
                 word = word.lower()
 
+            # ===================
+            #   Suffix Handling
+            # ===================
+            # If the word is NOT, we have to watch what comes next; if the
+            # next term is a suffix query, the NOT should stick with it.
+            if word == "NOT":
+                prev_was_not = True
+                continue
+
+            # Intercept terms that should be queried against the suffixes table.
+            suffix_re = r'^([a-zA-Z0-9]+[:])?(-)?([*][a-zA-Z0-9]+[*]?)$'
+            suffixes = re.findall(suffix_re, word)
+            if len(suffixes) > 0:
+                # https://blog.kapeli.com/sqlite-fts-contains-and-suffix-matches
+                # ^^^ has a good description of how the suffix table queries
+                # look
+                field = suffixes[0][0]
+                neg = suffixes[0][1]
+                term = suffixes[0][2]
+
+                if neg == '-' or prev_was_not:
+                    if self.enhanced_query_syntax:
+                        return_query += "NOT {}{} ".format(field, term)
+                        suffixes_query += "NOT {}{} ".format(field, term[1:])
+                    else:
+                        return_query += "{}-{} ".format(field, term)
+                        suffixes_query += "{}-{} ".format(field, term[1:])
+                else:
+                    return_query += "{}{} ".format(field, term)
+                    suffixes_query += "{}{} ".format(field, term[1:])
+                    suffixes_found_positive = True
+
+                prev_was_not = False
+                continue
+            # ===================
+
+            # Now we know the NOT goes in the FTS query.  Make sure we don't
+            # have a double negative in our query.
+
+            # This will be inserted into every term; if using Enhanced
+            # syntax, it will remain empty (and have no effect).  If using
+            # Standard syntax, it will be set to '-'.
+            standard_not = ""
+
+            parts = re.findall(r'^([a-zA-Z0-9]+:)?(-)?(.+)$', word)
+            field = parts[0][0]
+            neg = parts[0][1]
+            term = parts[0][2]
+
+            if neg == '-' or prev_was_not:
+                if self.enhanced_query_syntax:
+                    return_query += "NOT "
+                    fts_query += "NOT "
+                    word = "{}{}".format(field, term)
+                else:
+                    standard_not = "-"
+                    word = "{}{}".format(field, term)
+            else:
+                fts_found_positive = True
+
+            # As a final step, special keywords are processed.
             if word == 'is:commented' or word == 'has:comment':
-                query += 'comment:cmt '
-                return_query += 'has:comment '
-                found_positive = True
+                return_query += 'has:{}comment '.format(standard_not)
+                fts_query += 'comment:{}cmt '.format(standard_not)
             elif word == 'is:flagged' or word == 'has:flag':
-                query += 'flag:1 '
-                return_query += 'is:flagged '
-                found_positive = True
+                return_query += 'is:{}flagged '.format(standard_not)
+                fts_query += 'flag:{}1 '.format(standard_not)
             elif word == 'is:tagged' or word == 'has:tag':
-                query += 'tag:tags '
-                return_query += 'has:tag '
-                found_positive = True
+                return_query += 'has:{}tag '.format(standard_not)
+                fts_query += 'tag:{}tags '.format(standard_not)
             elif word == 'has:language' or word == 'has:lang':
-                query += 'language:lang '
-                return_query += 'has:language '
-                found_positive = True
+                return_query += 'has:{}language '.format(standard_not)
+                fts_query += 'language:{}lang '.format(standard_not)
             elif word.startswith("lang:"):
                 language = word.split("lang:", 1)[1]
-                query = query + "language:" + language + " "
-                return_query = return_query + "language:" + language + " "
-                found_positive = True
+                return_query += "language:{}{} ".format(standard_not, language)
+                fts_query += "language:{}{} ".format(standard_not, language)
             elif word == '&':
                 # Not needed, and FTS does not search for literal &s anyway
                 continue
             else:
-                # Look at the start of the term or after a filter for a NOT
-                # operator
-                negs = re.findall(r'(^-|:-)', word)
-                if len(negs) == 0:
-                    found_positive = True
-                query = query + word + ' '
-                return_query = return_query + word + ' '
+                return_query += "{} ".format(word)
+                fts_query += "{} ".format(word)
 
-        if not found_positive:
-            query += 'fullscan:1'
+            prev_was_not = False
+            continue
 
-        # Final check for Enhanced Query Syntax
-        if query.startswith("NOT "):
-            query = 'fullscan:1 {0}'.format(query)
+        # ***************************************************************
+        # Finished looking at all search terms.  See if we need to invoke
+        # 'fullscan:1'
+        if self.enhanced_query_syntax:
+            if fts_query.startswith("NOT "):
+                fts_query = "fullscan:1 {}".format(fts_query)
+            if suffixes_query.startswith("NOT "):
+                suffixes_query = "fullscan:1 {}".format(suffixes_query)
+        else:
+            if not fts_found_positive:
+                fts_query += 'fullscan:1'
+            if not suffixes_found_positive:
+                suffixes_query += 'fullscan:1'
+        # ***************************************************************
 
-        return [query.strip(), return_query.strip()]
+        return return_query.strip(), fts_query.strip(), suffixes_query.strip()
 
     def _update_tags(self, new_tags, old_tags):
         """
@@ -439,45 +516,115 @@ class SQLiteProvider(DataProvider):
             raise e
 
     @functools.lru_cache(maxsize=128)
-    def _cached_search_results_count(self, query):
+    def _cached_search_results_count(self, fts_query, suffixes_query):
         """
         Memoise the relatively expensive count() function on search results
-        `query` should be the actual query string.
         """
-        search = self.session.query(RecordsFTS.docid)
-        filter_string = RecordsFTS.__tablename__ + " MATCH :text"
-        search = search.filter(
-            sqlalchemy.sql.expression.text(filter_string)
-        ).params(
-            text=query
-        ).order_by(RecordsFTS.docid)
-        return search.count()
+        # Make sure suffixer is in search_mode, just in case we need to use it
+        prev_mode = self.suffix_tokeniser.search_mode
+        self.suffix_tokeniser.search_mode = True
+
+        # Prepare and join up the fts/suffix queries as appropriate
+        search = None
+        fts = None
+        suffixes = None
+
+        if fts_query != '':
+            fts = self.session.query(RecordsFTS.docid)
+            fts_filter = RecordsFTS.__tablename__ + " MATCH :fts"
+            fts = fts.filter(
+                sqlalchemy.sql.expression.text(fts_filter)
+            ).params(
+                fts=fts_query
+            ).order_by(RecordsFTS.docid)
+
+        if suffixes_query != '':
+            suffixes = self.session.query(RecordsSuffixes.docid)
+            suffixes_filter = RecordsSuffixes.__tablename__ + " MATCH :suffixes"
+            suffixes = suffixes.filter(
+                sqlalchemy.sql.expression.text(suffixes_filter)
+            ).params(
+                suffixes=suffixes_query
+            ).order_by(RecordsSuffixes.docid)
+
+        if fts is not None and suffixes is None:
+            search = fts
+        elif fts is not None and suffixes is not None:
+            suffixes = suffixes.subquery()
+            search = fts.join(suffixes, RecordsFTS.docid == suffixes.c.docid)
+        elif fts is None and suffixes is not None:
+            search = suffixes
+        elif fts is None and suffixes is None:
+            # Uh-oh, this shouldn't be happening -- Even if the user passes
+            # an empty string, the pre-processor should have given us an
+            # fts_query of 'fullscan:1'
+            raise oce.exceptions.CustomError("FTS requested on empty string "
+                                             "without specifying 'fullscan:1'.")
+
+        count = search.count()
+        self.suffix_tokeniser.search_mode = prev_mode
+        return count
 
     @functools.lru_cache(maxsize=128)
-    def _cached_search_results(self, query, offset, limit):
+    def _cached_search_results(self, fts_query, suffixes_query, offset, limit):
         """
         Memoised call to get the results of a search query; useful when the
         user is thumbing through the results pages without making modifications.
         """
-        # Prepare the FTS subquery: We'll only select docid to prevent
+        # For the various FTS subqueries, we'll only select docid to prevent
         # loading everything to memory (docid can be taken straight from
         # the FTS index)
         # Rough benchmarking -- Search times for query "a*"
         # 1) Ordering on `rowid` instead of `docid`: 21.986s
         # 2) Ordering on `docid` but without limiting subquery: 7.049s
         # 3) Ordering on `docid` with limited subquery: 3.538s
-        search = self.session.query(RecordsFTS.docid)
-        filter_string = RecordsFTS.__tablename__ + " MATCH :text"
-        search = search.filter(
-            sqlalchemy.sql.expression.text(filter_string)
-        ).params(
-            text=query
-        ).order_by(RecordsFTS.docid)
+
+        # Make sure suffixer is in search_mode, just in case we need to use it
+        prev_mode = self.suffix_tokeniser.search_mode
+        self.suffix_tokeniser.search_mode = True
+
+        # Prepare and join up the fts/suffix queries as appropriate
+        search = None
+        fts = None
+        suffixes = None
+
+        if fts_query != '':
+            fts = self.session.query(RecordsFTS.docid)
+            fts_filter = RecordsFTS.__tablename__ + " MATCH :fts"
+            fts = fts.filter(
+                sqlalchemy.sql.expression.text(fts_filter)
+            ).params(
+                fts=fts_query
+            ).order_by(RecordsFTS.docid)
+
+        if suffixes_query != '':
+            suffixes = self.session.query(RecordsSuffixes.docid)
+            suffixes_filter = RecordsSuffixes.__tablename__ + " MATCH :suffixes"
+            suffixes = suffixes.filter(
+                sqlalchemy.sql.expression.text(suffixes_filter)
+            ).params(
+                suffixes=suffixes_query
+            ).order_by(RecordsSuffixes.docid)
+
+        if fts is not None and suffixes is None:
+            search = fts
+        elif fts is not None and suffixes is not None:
+            suffixes = suffixes.subquery()
+            search = fts.join(suffixes, RecordsFTS.docid == suffixes.c.docid)
+        elif fts is None and suffixes is not None:
+            search = suffixes
+        elif fts is None and suffixes is None:
+            # Uh-oh, this shouldn't be happening -- Even if the user passes
+            # an empty string, the pre-processor should have given us an
+            # fts_query of 'fullscan:1'
+            raise oce.exceptions.CustomError("FTS requested on empty string "
+                                             "without specifying 'fullscan:1'.")
 
         if offset > 0:
             search = search.offset(offset)
         if limit > 0:
             search = search.limit(limit)
+
         search = search.subquery()
 
         # And now the main query
@@ -485,7 +632,9 @@ class SQLiteProvider(DataProvider):
             .join(search, Records.rowid == search.c.docid) \
             .order_by(Records.rowid)
 
-        return [row.dictionary for row in main]
+        results = [row.dictionary for row in main]
+        self.suffix_tokeniser.search_mode = prev_mode
+        return results
 
     def _clear_caches(self):
         """
@@ -515,7 +664,15 @@ class SQLiteProvider(DataProvider):
            token
         """
 
-        @functools.lru_cache(maxsize=256)
+        def tokenize(self, text):
+            """
+            Expected to return an iterator over the tokens in `text`.
+            """
+            text = text.lower()
+            list_tokens = self.tokenise_as_list(text)
+            return iter(list_tokens)
+
+        @functools.lru_cache(maxsize=128)
         def tokenise_as_list(self, text):
             """
             Memoised version of the tokeniser; returns a list instead of an
@@ -576,14 +733,6 @@ class SQLiteProvider(DataProvider):
 
             return tokenised_list
 
-        def tokenize(self, text):
-            """
-            Expected to return an iterator over the tokens in `text`.
-            """
-            text = text.lower()
-            list_tokens = self.tokenise_as_list(text)
-            return iter(list_tokens)
-
     class OCESuffixes(Tokenizer):
         """
         Custom tokeniser:
@@ -606,11 +755,9 @@ class SQLiteProvider(DataProvider):
             """
             text = text.lower()
             list_suffixes = self.suffixes_as_list(text, self.search_mode)
-            print(self.suffixes_as_list.cache_info())
-            print(list_suffixes)
             return iter(list_suffixes)
 
-        @functools.lru_cache(maxsize=256)
+        @functools.lru_cache(maxsize=128)
         def suffixes_as_list(self, text, search_mode):
             """
             Memoised version of the suffixer; returns a list instead of an
@@ -621,6 +768,9 @@ class SQLiteProvider(DataProvider):
                 "Running OCESuffixer: {}, search_mode: {}".format(text,
                                                                   search_mode)
             )
+
+            # Perform any pre-processing that might be appropriate
+            text = self._preprocess_text(text)
 
             # The start and end values given by OCETokeniser are in bytes,
             # but we prefer to work with characters; we'll convert them in the
@@ -649,3 +799,15 @@ class SQLiteProvider(DataProvider):
                                                            c_end))
 
             return tokenised_list
+
+        def _preprocess_text(self, text):
+            """
+            Do stuff to the record before finding its suffixes.
+            """
+            # Try to remove the UUID part of URLs from Twitter's URL shortener.
+            # (They gum up the suffix database with a whole bunch of
+            # single-record entries)
+            # http://t.co/<UUID>
+            text = re.sub(r'http://t[.]co/[a-zA-Z0-9]+', 'http://t.co/', text)
+
+            return text

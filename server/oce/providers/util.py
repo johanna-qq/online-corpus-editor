@@ -121,6 +121,27 @@ class SQLAlchemyORM:
                 data[col.name] = fts_detag(col.name, getattr(self, col.name))
             return data
 
+    class RecordsSuffixes(Base):
+        __tablename__ = MAIN_TABLE + '_suffixes'
+
+        docid = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
+        rowid = sqlalchemy.Column(sqlalchemy.Integer)
+        content = sqlalchemy.Column(sqlalchemy.Text)
+        flag = sqlalchemy.Column(sqlalchemy.Boolean)
+        category = sqlalchemy.Column(sqlalchemy.Integer)
+        comment = sqlalchemy.Column(sqlalchemy.Text)
+        tag = sqlalchemy.Column(sqlalchemy.Text)
+        language = sqlalchemy.Column(sqlalchemy.Text)
+
+        # Represents as a standard dictionary for easy JSON-ification
+        @property
+        def dictionary(self):
+            data = dict()
+            for col in self.__table__.columns:
+                # Also detags if necessary
+                data[col.name] = fts_detag(col.name, getattr(self, col.name))
+            return data
+
     class RecordCount(Base):
         __tablename__ = MAIN_TABLE + '_count'
         count = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True)
