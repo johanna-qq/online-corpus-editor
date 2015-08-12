@@ -32,11 +32,27 @@ command_table = {
     'shutdow': 'command_need_full',
     'shutdown': 'command_shutdown',
 
-    # Database functions
+    # Database functions (branch table)
     'db': 'command_db_branch',
 
     # Debug
     'debugsleep': 'command_debugsleep'
+}
+
+# Database functions
+db_branch_table = {
+    # Provider admin
+    'config': 'command_db_config',
+
+    # Meta-info
+    'meta': 'command_meta',
+
+    # Data manipulation
+    'query': 'command_query',
+
+    # Database structure
+    'drop': 'command_drop',
+    'recreate': 'command_recreate'
 }
 
 # The reply table maps the 'command' field of a reply from the server to a
@@ -329,23 +345,8 @@ class TelnetParser:
         """
         Branches off into various db operations.
         """
-        branch_table = {
-            # Provider admin
-            'config': 'command_db_config',
-
-            # Meta-info
-            'meta': 'command_meta',
-
-            # Data manipulation
-            'query': 'command_query',
-
-            # Database structure
-            'drop': 'command_drop',
-            'recreate': 'command_recreate'
-        }
-
         if len(args) == 0:
-            branch_list = list(branch_table.keys())
+            branch_list = list(db_branch_table.keys())
             branch_list.sort()
             yield from self.send_to_client("You need to specify a DB "
                                            "operation to perform.\r\n"
@@ -353,7 +354,7 @@ class TelnetParser:
                                            "{}".format(" ".join(branch_list)))
             return
 
-        yield from self.parse_client_input(branch_table, " ".join(args))
+        yield from self.parse_client_input(db_branch_table, " ".join(args))
 
     @asyncio.coroutine
     def command_db_config(self, *args):

@@ -542,34 +542,87 @@ class SQLiteProvider(DataProvider):
         """
         Runs arbitrary debug commands on the open DB
         """
+        import os
+
         # Records with non-ASCII characters.
         def non_ascii_dump():
             logger.debug("Beginning non-ASCII, non-emoji Record Dump")
-            fp = open('data/non-ascii-dump.txt', 'w')
+
+            filename = 'data/non-ascii-dump.txt'
+            if os.path.exists(filename):
+                logger.debug("'{}' exists -- Will not overwrite. "
+                             "Stopping.".format(filename))
+                return
+            fp = open(filename, 'w')
+
             last_rowid = self.fetch_total()
             for rowid in range(1, last_rowid + 1):
                 if rowid % 100 == 0:
                     logger.debug("Row: {}".format(rowid))
 
                 record = self.fetch_record(rowid)
-                for char in record.content:
-                    # Rough emoji detection
-                    if (ord(char) > 127 and
-                            not ord('\U0001F300') <= ord(char) <= ord(
-                                '\U0001F6FF') and
-                            not ord('\u2600') <= ord(char) <= ord('\u27BF')):
+                for char in record['content']:
+                    # Rough emoji and punctuation detection
+                    latin = ord(char) <= ord('\u036F')
+                    emo1 = ord('\U0001F300') <= ord(char) <= ord('\U0001F6FF')
+                    punc = ord('\u2000') <= ord(char) <= ord('\u2600')
+                    emo2 = ord('\u2600') <= ord(char) <= ord('\u27BF')
+                    private = ord('\uE000') <= ord(char) <= ord('\uF8FF')
+
+                    if not latin and not emo1 and not emo2 and not punc and \
+                            not private:
                         logger.debug(
                             "Found non-ASCII, non-emoji char in record {}".format(
                                 record['rowid'])
                         )
                         fp.write(
-                            "{:^10}{}\n".format(record['rowid'], record['content'])
+                            "{:^10}{}\n".format(
+                                record['rowid'],
+                                record['content'].replace('\n', '\\n')
+                            )
                         )
+                        fp.flush()
                         break
             fp.close()
             logger.debug("Dump complete.")
 
-        non_ascii_dump()
+        # Dumps records with chinese chars, as detected by the langid system
+        def chinese_char_dump():
+            from oce.langid.features import has_zh_chars
+
+            logger.debug("Beginning Chinese Chars Record Dump")
+
+            filename = 'data/chinese-dump.txt'
+            if os.path.exists(filename):
+                logger.debug("'{}' exists -- Will not overwrite. "
+                             "Stopping.".format(filename))
+                return
+            fp = open(filename, 'w')
+
+            last_rowid = self.fetch_total()
+            for rowid in range(1, last_rowid + 1):
+                if rowid % 100 == 0:
+                    logger.debug("Row: {}".format(rowid))
+
+                record = self.fetch_record(rowid)
+                if has_zh_chars(record['content']):
+                    logger.debug(
+                        "Found Chinese char in record {}".format(
+                            record['rowid'])
+                    )
+                    fp.write(
+                        "{:^10}{}\n".format(
+                            record['rowid'],
+                            record['content'].replace('\n', '\\n')
+                        )
+                    )
+                    fp.flush()
+            fp.close()
+            logger.debug("Dump complete.")
+
+        pass
+        # non_ascii_dump()
+        # chinese_char_dump()
 
     def _execute_literal_statements(self, statements):
         """
