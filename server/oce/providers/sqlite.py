@@ -83,6 +83,9 @@ class SQLiteProvider(DataProvider):
             "SQLite data provider initialised. ({0})".format(self.db_file)
         )
 
+        if debug_mode:
+            self.debug()
+
     def shutdown(self):
         self.session.commit()
         self.session.close()
@@ -137,9 +140,18 @@ class SQLiteProvider(DataProvider):
         return self.session.query(Records) \
             .filter(Records.rowid == row_id).one().dictionary
 
-    def fetch_records(self, first, last):
-        return [row.dictionary for row in self.session.query(Records).filter(
-            Records.rowid.between(first, last)).order_by(Records.rowid)]
+    def fetch_records(self, first=None, last=None):
+        """
+        Fetches records from the Records table, with optional start/end rowids.
+        """
+        query = self.session.query(Records)
+        if first is None and last is not None:
+            query = query.filter(Records.rowid <= last)
+        elif first is not None and last is None:
+            query = query.filter(Records.rowid >= first)
+        elif first is not None and last is not None:
+            query = query.filter(Records.rowid.between(first, last))
+        return [row.dictionary for row in query.order_by(Records.rowid)]
 
     def fetch_search_results(self, query, offset=0, limit=0):
         start_time = timeit.default_timer()
@@ -527,7 +539,37 @@ class SQLiteProvider(DataProvider):
                 self.session.commit()
 
     def debug(self):
-        pass
+        """
+        Runs arbitrary debug commands on the open DB
+        """
+        # Records with non-ASCII characters.
+        def non_ascii_dump():
+            logger.debug("Beginning non-ASCII, non-emoji Record Dump")
+            fp = open('data/non-ascii-dump.txt', 'w')
+            last_rowid = self.fetch_total()
+            for rowid in range(1, last_rowid + 1):
+                if rowid % 100 == 0:
+                    logger.debug("Row: {}".format(rowid))
+
+                record = self.fetch_record(rowid)
+                for char in record.content:
+                    # Rough emoji detection
+                    if (ord(char) > 127 and
+                            not ord('\U0001F300') <= ord(char) <= ord(
+                                '\U0001F6FF') and
+                            not ord('\u2600') <= ord(char) <= ord('\u27BF')):
+                        logger.debug(
+                            "Found non-ASCII, non-emoji char in record {}".format(
+                                record['rowid'])
+                        )
+                        fp.write(
+                            "{:^10}{}\n".format(record['rowid'], record['content'])
+                        )
+                        break
+            fp.close()
+            logger.debug("Dump complete.")
+
+        non_ascii_dump()
 
     def _execute_literal_statements(self, statements):
         """
