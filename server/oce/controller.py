@@ -100,6 +100,15 @@ class Act:  # Hurr hurr
         # Bring up data providers and server interfaces
         self.provider = None
         self.servers = []
+
+        # Client list - Servers will register their clients with us as they come
+        self.clients = []
+        # And when they do, this future will get resolved and recreated.
+        self.clients_changed = asyncio.Future()
+        # So that we can watch them for input
+        # This is a list of tuples: (ClientInterface, Future)
+        self.client_watch = []
+
         for key, value in kwargs.items():
             if value is None:
                 # The user did not specify this provider/interface as a server
@@ -136,14 +145,6 @@ class Act:  # Hurr hurr
 
         # Lang ID module
         self.langid = oce.langid.LangIDController()
-
-        # Client list - Servers will register their clients with us as they come
-        self.clients = []
-        # And when they do, this future will get resolved and recreated.
-        self.clients_changed = asyncio.Future()
-        # So that we can watch them for input
-        # This is a list of tuples: (ClientInterface, Future)
-        self.client_watch = []
 
     @asyncio.coroutine
     def shutdown(self):

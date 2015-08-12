@@ -526,8 +526,8 @@ class TelnetParser:
                       "REMINDER: If the suffixer is not in search mode, " \
                       "suffix search results will be inaccurate.  If the " \
                       "suffixer is in search mode, rebuilding the suffix " \
-                      "table will not work. Use the 'db config' command to " \
-                      "switch between the two modes."
+                      "table will not work properly. Use the 'db config' " \
+                      "command to switch between the two modes."
         return "{}\r\n\r\n{}".format(str(reply), warning_msg)
 
 class TelnetExit(Exception):
