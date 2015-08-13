@@ -620,9 +620,66 @@ class SQLiteProvider(DataProvider):
             fp.close()
             logger.debug("Dump complete.")
 
+        # Dumps records with Japanese chars
+        def jp_char_dump():
+            from oce.langid.features import has_zh_chars
+
+            logger.debug("Beginning Japanese chars record dump")
+
+            filename = 'data/jp-dump.txt'
+            if os.path.exists(filename):
+                logger.debug("'{}' exists -- Will not overwrite. "
+                             "Stopping.".format(filename))
+                return
+            fp = open(filename, 'w')
+
+            # o.O
+            query = "ぁ OR あ OR ぃ OR い OR ぅ OR う OR ぇ OR え OR ぉ OR お OR " \
+                    "か OR が OR き OR ぎ OR く OR ぐ OR け OR げ OR こ OR ご OR " \
+                    "さ OR ざ OR し OR じ OR す OR ず OR せ OR ぜ OR そ OR ぞ OR " \
+                    "た OR だ OR ち OR ぢ OR っ OR つ OR づ OR て OR で OR と OR " \
+                    "ど OR な OR に OR ぬ OR ね OR の OR は OR ば OR ぱ OR ひ OR " \
+                    "び OR ぴ OR ふ OR ぶ OR ぷ OR へ OR べ OR ぺ OR ほ OR ぼ OR " \
+                    "ぽ OR ま OR み OR む OR め OR も OR ゃ OR や OR ゅ OR ゆ OR " \
+                    "ょ OR よ OR ら OR り OR る OR れ OR ろ OR ゎ OR わ OR ゐ OR " \
+                    "ゑ OR を OR ん OR ゔ OR ゕ OR ゖ OR ァ OR ア OR ィ OR イ OR " \
+                    "ゥ OR ウ OR ェ OR エ OR ォ OR オ OR カ OR ガ OR キ OR ギ OR " \
+                    "ク OR グ OR ケ OR ゲ OR コ OR ゴ OR サ OR ザ OR シ OR ジ OR " \
+                    "ス OR ズ OR セ OR ゼ OR ソ OR ゾ OR タ OR ダ OR チ OR ヂ OR " \
+                    "ッ OR ツ OR ヅ OR テ OR デ OR ト OR ド OR ナ OR ニ OR ヌ OR " \
+                    "ネ OR ノ OR ハ OR バ OR パ OR ヒ OR ビ OR ピ OR フ OR ブ OR " \
+                    "プ OR ヘ OR ベ OR ペ OR ホ OR ボ OR ポ OR マ OR ミ OR ム OR " \
+                    "メ OR モ OR ャ OR ヤ OR ュ OR ユ OR ョ OR ヨ OR ラ OR リ OR " \
+                    "ル OR レ OR ロ OR ヮ OR ワ OR ヰ OR ヱ OR ヲ OR ン OR ヴ OR " \
+                    "ヵ OR ヶ OR ヷ OR ヸ OR ヹ OR ヺ OR ｦ OR ｧ OR ｨ OR ｩ OR " \
+                    "ｪ OR ｫ OR ｬ OR ｭ OR ｮ OR ｯ OR ｰ OR ｱ OR ｲ OR ｳ OR ｴ OR " \
+                    "ｵ OR ｶ OR ｷ OR ｸ OR ｹ OR ｺ OR ｻ OR ｼ OR ｽ OR ｾ OR ｿ OR " \
+                    "ﾀ OR ﾁ OR ﾂ OR ﾃ OR ﾄ OR ﾅ OR ﾆ OR ﾇ OR ﾈ OR ﾉ OR ﾊ OR " \
+                    "ﾋ OR ﾌ OR ﾍ OR ﾎ OR ﾏ OR ﾐ OR ﾑ OR ﾒ OR ﾓ OR ﾔ OR ﾕ OR " \
+                    "ﾖ OR ﾗ OR ﾘ OR ﾙ OR ﾚ OR ﾛ OR ﾜ OR ﾝ OR ㋐ OR ㋑ OR ㋒ OR " \
+                    "㋓ OR ㋔ OR ㋕ OR ㋖ OR ㋗ OR ㋘ OR ㋙ OR ㋚ OR ㋛ OR ㋜ OR " \
+                    "㋝ OR ㋞ OR ㋟ OR ㋠ OR ㋡ OR ㋢ OR ㋣ OR ㋤ OR ㋥ OR ㋦ OR " \
+                    "㋧ OR ㋨ OR ㋩ OR ㋪ OR ㋫ OR ㋬ OR ㋭ OR ㋮ OR ㋯ OR ㋰ OR ㋱ OR " \
+                    "㋲ OR ㋳ OR ㋴ OR ㋵ OR ㋶ OR ㋷ OR ㋸ OR ㋹ OR ㋺ OR ㋻ OR ㋼ OR " \
+                    "㋽ OR ㋾ OR ㇰ OR ㇱ OR ㇲ OR ㇳ OR ㇴ OR ㇵ OR ㇶ OR ㇷ OR ㇸ OR " \
+                    "ㇹ OR ㇺ OR ㇻ OR ㇼ OR ㇽ OR ㇾ OR ㇿ"
+            records = self.fetch_search_results(query)
+
+            for record in records['results']:
+                fp.write(
+                    "{:^10}{}\n".format(
+                        record['rowid'],
+                        record['content'].replace('\n', '\\n')
+                    )
+                )
+                fp.flush()
+            fp.close()
+            logger.debug("Dump complete.")
+
         pass
         # non_ascii_dump()
         # chinese_char_dump()
+        jp_char_dump()
 
     def _execute_literal_statements(self, statements):
         """

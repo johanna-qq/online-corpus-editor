@@ -49,6 +49,7 @@ db_branch_table = {
 
     # Data manipulation
     'query': 'command_query',
+    'search': 'command_search',
 
     # Database structure
     'drop': 'command_drop',
@@ -64,7 +65,8 @@ format_table = {
     'motd': 'format_raw',
     'db_get_config': 'format_db_get_config',
     'db_set_config': 'format_db_set_config',
-    'literal_query': 'format_literal_query'
+    'literal_query': 'format_literal_query',
+    'search': 'format_search'
 }
 
 
@@ -97,7 +99,9 @@ class TelnetParser:
         # Client variables
         self.prompt = "> "
         self.last_command = ""
-        self.config = {}
+        self.config = {
+            'per_page': 5 # Query result limit
+        }
 
     @asyncio.coroutine
     def get_input_async(self):
@@ -411,8 +415,64 @@ class TelnetParser:
         request = {
             'command': 'literal_query',
             'query': query,
-            'limit': 100  # Don't want to swamp the client with data
-            # TODO: Let limit be user-settable?
+            'limit': self.config['per_page']
+        }
+        yield from self.send_to_server(request)
+
+    @asyncio.coroutine
+    def command_search(self, *args):
+        """
+        FTS search request
+        """
+        if len(args) == 0:
+            yield from self.send_to_client("Syntax is:\r\n\r\n"
+                                           "db search \"<query  >\""
+                                           "<page number>")
+            return
+
+        # Make sure the query is in double inverted commas
+        raw_string = " ".join(args)
+        re_match = re.search(r'^([^"]*)"(([^\]\"|[^"])+)"([^"]*)$', raw_string)
+        if re_match is None:
+            yield from self.send_to_client(
+                "The search string needs to be properly wrapped in double "
+                "inverted commas."
+            )
+            return
+
+        # E.g., this "is a" test
+        pre_args = re_match.group(1)    # 'this '
+        query = re_match.group(2)       # 'is a'
+        post_args = re_match.group(4)   # ' test'
+
+        logger.debug(
+            "Client issued 'search'. "
+            "<pre_args: {}, query: {}, post_args: {}>".format(pre_args,
+                                                              query,
+                                                              post_args)
+        )
+
+        post_args = post_args.strip()
+        if post_args != '':
+            try:
+                page_number = int(post_args)
+            except ValueError:
+                yield from self.send_to_client(
+                    "'{}' is not a valid page number.\r\n\r\n"
+                    "Syntax is:\r\n\r\n"
+                    "db search \"<query>\" <page number>".format(post_args)
+                )
+                return
+        else:
+            page_number = 1
+
+        # Transitional: The server's search function currently takes an
+        # encoded URL string (for some reason...)
+
+        request = {
+            'command': 'search',
+            'query': "s={}&p={}".format(query, page_number),
+            'perpage': self.config['per_page']
         }
         yield from self.send_to_server(request)
 
@@ -530,6 +590,28 @@ class TelnetParser:
                       "table will not work properly. Use the 'db config' " \
                       "command to switch between the two modes."
         return "{}\r\n\r\n{}".format(str(reply), warning_msg)
+
+    @asyncio.coroutine
+    def format_search(self, reply):
+        first = reply['offset'] + 1
+        last = reply['offset'] + self.config['per_page']
+        if last > reply['total']:
+            last = reply['total']
+
+        output = (
+            "{first}-{last} out of {total} results for '{query}'.\r\n"
+            "Search took {elapsed}s.\r\n\r\n".format(first=first,
+                                                     last=last,
+                                                     total=reply['total'],
+                                                     query=reply['query'],
+                                                     elapsed=reply['elapsed'])
+        )
+
+        for record in reply['results']:
+            output += "{}\r\n\r\n".format(str(record))
+
+        return output.strip()
+
 
 class TelnetExit(Exception):
     """
