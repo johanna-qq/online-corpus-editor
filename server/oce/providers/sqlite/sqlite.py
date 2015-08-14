@@ -6,6 +6,10 @@ When writing new memoised functions, be sure to reference them in
 _clear_caches() so that they can be reset when the DB is updated.
 """
 import functools
+import re
+import sqlite3
+import timeit
+
 import sqlalchemy
 import sqlalchemy.dialects
 import sqlalchemy.orm
@@ -13,10 +17,6 @@ import sqlalchemy.sql.expression
 import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.ext.declarative.api
-
-import re
-import sqlite3
-import timeit
 
 import oce.exceptions
 import oce.logger
@@ -36,11 +36,12 @@ RecordsSuffixes = SQLAlchemyORM.RecordsSuffixes
 RecordCount = SQLAlchemyORM.RecordCount
 RecordTags = SQLAlchemyORM.RecordTags
 
-from oce.providers.sqlite_tokeniser import make_tokenizer_module
-from oce.providers.sqlite_tokeniser import Tokenizer
-from oce.providers.sqlite_tokeniser import register_tokenizer
+from oce.providers.sqlite.tokeniser_bindings import make_tokenizer_module
+from oce.providers.sqlite.tokeniser_bindings import register_tokenizer
 
-from oce.providers.sqlite_schema import db_schema
+from oce.providers.sqlite.tokenisers import OCETokeniser, OCESuffixes
+
+from oce.providers.sqlite.db_schema import db_schema
 
 
 class SQLiteProvider(DataProvider):
@@ -62,14 +63,10 @@ class SQLiteProvider(DataProvider):
             if option[0] == "ENABLE_FTS3_PARENTHESIS":
                 self.enhanced_query_syntax = True
 
-        # For our suffix table tokeniser, we have two modes: When search_mode
-        # is False, all terms are expanded to their suffixes.  When
-        # search_mode is True, it acts like the normal tokeniser.  This
-        # reference will get filled in by _setup_connection().
-        # Also, since _setup_connection() gets called multiple times,
-        # make sure we pass them the same instances of the tokenisers.
-        self.main_tokeniser = self.OCETokeniser()
-        self.suffix_tokeniser = self.OCESuffixes(self.main_tokeniser)
+        # SQLAlchemy calls _setup_connection() multiple times, so we need to
+        # make sure it always uses the same tokeniser instances.
+        self.main_tokeniser = OCETokeniser()
+        self.suffix_tokeniser = OCESuffixes(self.main_tokeniser)
 
         # Prep the DB connection
         self.engine = sqlalchemy.create_engine('sqlite:///' + self.db_file)
@@ -623,7 +620,6 @@ class SQLiteProvider(DataProvider):
 
         # Dumps records with Japanese chars
         def jp_char_dump():
-            from oce.langid.features import has_zh_chars
 
             logger.debug("Beginning Japanese chars record dump")
 
@@ -838,165 +834,165 @@ class SQLiteProvider(DataProvider):
         initialised.
         Run multiple times by the engine.
         """
-        # Initialise our custom tokenisers
-        tokeniser_module = make_tokenizer_module(self.main_tokeniser)
-        register_tokenizer(db_connection, 'oce', tokeniser_module)
-        suffix_module = make_tokenizer_module(self.suffix_tokeniser)
-        register_tokenizer(db_connection, 'oce_suffixes', suffix_module)
-
-    class OCETokeniser(Tokenizer):
-        """
-        Custom tokeniser:
-        1) Folds text to lower case
-        2) Treats all non-alphanumeric ASCII chars as delimiters
-        3) Each character outside the ASCII range is treated as one single
-           token
-        """
-
-        def tokenize(self, text):
-            """
-            Expected to return an iterator over the tokens in `text`.
-            """
-            text = text.lower()
-            list_tokens = self.tokenise_as_list(text)
-            return iter(list_tokens)
-
-        @functools.lru_cache(maxsize=128)
-        def tokenise_as_list(self, text):
-            """
-            Memoised version of the tokeniser; returns a list instead of an
-            iterator.  This cache should not need to be cleared; any
-            modifications to the tokeniser will only take effect on restart
-            """
-            logger.debug('Running OCETokeniser: {}'.format(text))
-
-            tokenised_list = []
-
-            token_open = False
-            token_start = 0
-            token_end = 0
-            for char in text:
-                if re.match(r'[^a-zA-Z0-9]', char):
-                    # The character is non-alphanumeric.  If it is within the
-                    # ASCII range, close the current token and yield it.  If
-                    # not, yield it as a new token.
-                    if ord(char) <= 127:
-                        if token_open:
-                            # Was in token.  Yield token and advance cursors
-                            # to next character.
-                            token_open = False
-                            tokenised_list.append(self.yield_token(text,
-                                                                   token_start,
-                                                                   token_end))
-                            token_end += 1
-                            token_start = token_end
-                        else:
-                            # Was not in token.  Advance cursors in tandem.
-                            token_end += 1
-                            token_start += 1
-                    else:
-                        if token_open:
-                            # Was in token.  Yield and advance start cursor.
-                            token_open = False
-                            tokenised_list.append(self.yield_token(text,
-                                                                   token_start,
-                                                                   token_end))
-                            token_start = token_end
-
-                        # Yield one more character (the non-ASCII one)
-                        token_end += 1
-                        tokenised_list.append(self.yield_token(text,
-                                                               token_start,
-                                                               token_end))
-                        token_start = token_end
-                else:
-                    # In a token.  Move the end cursor.
-                    token_open = True
-                    token_end += 1
-
-            # Yield the last token
-            if token_open:
-                tokenised_list.append(self.yield_token(text,
-                                                       token_start,
-                                                       token_end))
-
-            return tokenised_list
-
-    class OCESuffixes(Tokenizer):
-        """
-        Custom tokeniser:
-        1) Runs against OCETokeniser to get tokenised input string.
-        2) For each token in the input, returns the suffix array for that token
-           if the token has length > 1
-
-        UNLESS:
-        1) If search_mode is True, returns only the output of OCETokeniser (
-           so that we don't unnecessarily process search queries)
-        """
-
-        def __init__(self, main_tokeniser):
-            self.main_tokeniser = main_tokeniser
-            self.search_mode = False
-
-        def tokenize(self, text):
-            """
-            Expected to return an iterator over the tokens in `text`.
-            """
-            text = text.lower()
-            list_suffixes = self.suffixes_as_list(text, self.search_mode)
-            return iter(list_suffixes)
-
-        @functools.lru_cache(maxsize=128)
-        def suffixes_as_list(self, text, search_mode):
-            """
-            Memoised version of the suffixer; returns a list instead of an
-            iterator.  This cache should not need to be cleared; any
-            modifications to the tokeniser will only take effect on restart
-            """
-            logger.debug(
-                "Running OCESuffixer: {}, search_mode: {}".format(text,
-                                                                  search_mode)
-            )
-
-            # Perform any pre-processing that might be appropriate
-            text = self._preprocess_text(text)
-
-            # The start and end values given by OCETokeniser are in bytes,
-            # but we prefer to work with characters; we'll convert them in the
-            # loop.
-            b_text = text.encode('utf-8')
-
-            main_tokenised = self.main_tokeniser.tokenise_as_list(text)
-            if search_mode:
-                return main_tokenised
-
-            tokenised_list = []
-            for token, b_start, b_end in main_tokenised:
-                if len(token) == 1:
-                    # One character token.  No need to extract suffixes.
-                    continue
-
-                # Byte position -> Character position
-                c_before = len(b_text[:b_start].decode('utf-8'))
-
-                # Skip the first suffix (i.e., the whole token)
-                c_start = c_before + 1
-                c_end = c_before + len(token)
-                for suffix_start in range(c_start, c_end):
-                    tokenised_list.append(self.yield_token(text,
-                                                           suffix_start,
-                                                           c_end))
-
-            return tokenised_list
-
-        def _preprocess_text(self, text):
-            """
-            Do stuff to the record before finding its suffixes.
-            """
-            # Try to remove the UUID part of URLs from Twitter's URL shortener.
-            # (They gum up the suffix database with a whole bunch of
-            # single-record entries)
-            # http://t.co/<UUID>
-            text = re.sub(r'http://t[.]co/[a-zA-Z0-9]+', 'http://t.co/', text)
-
-            return text
+        # Register the instance's tokenisers with the DB connection.
+        register_tokenizer(db_connection, 'oce',
+                           make_tokenizer_module(self.main_tokeniser))
+        register_tokenizer(db_connection, 'oce_suffixes',
+                           make_tokenizer_module(self.suffix_tokeniser))
+        #
+        # class OCETokeniser(Tokenizer):
+        #     """
+        #     Custom tokeniser:
+        #     1) Folds text to lower case
+        #     2) Treats all non-alphanumeric ASCII chars as delimiters
+        #     3) Each character outside the ASCII range is treated as one single
+        #        token
+        #     """
+        #
+        #     def tokenize(self, text):
+        #         """
+        #         Expected to return an iterator over the tokens in `text`.
+        #         """
+        #         text = text.lower()
+        #         list_tokens = self.tokenise_as_list(text)
+        #         return iter(list_tokens)
+        #
+        #     @functools.lru_cache(maxsize=128)
+        #     def tokenise_as_list(self, text):
+        #         """
+        #         Memoised version of the tokeniser; returns a list instead of an
+        #         iterator.  This cache should not need to be cleared; any
+        #         modifications to the tokeniser will only take effect on restart
+        #         """
+        #         logger.debug('Running OCETokeniser: {}'.format(text))
+        #
+        #         tokenised_list = []
+        #
+        #         token_open = False
+        #         token_start = 0
+        #         token_end = 0
+        #         for char in text:
+        #             if re.match(r'[^a-zA-Z0-9]', char):
+        #                 # The character is non-alphanumeric.  If it is within the
+        #                 # ASCII range, close the current token and yield it.  If
+        #                 # not, yield it as a new token.
+        #                 if ord(char) <= 127:
+        #                     if token_open:
+        #                         # Was in token.  Yield token and advance cursors
+        #                         # to next character.
+        #                         token_open = False
+        #                         tokenised_list.append(self.yield_token(text,
+        #                                                                token_start,
+        #                                                                token_end))
+        #                         token_end += 1
+        #                         token_start = token_end
+        #                     else:
+        #                         # Was not in token.  Advance cursors in tandem.
+        #                         token_end += 1
+        #                         token_start += 1
+        #                 else:
+        #                     if token_open:
+        #                         # Was in token.  Yield and advance start cursor.
+        #                         token_open = False
+        #                         tokenised_list.append(self.yield_token(text,
+        #                                                                token_start,
+        #                                                                token_end))
+        #                         token_start = token_end
+        #
+        #                     # Yield one more character (the non-ASCII one)
+        #                     token_end += 1
+        #                     tokenised_list.append(self.yield_token(text,
+        #                                                            token_start,
+        #                                                            token_end))
+        #                     token_start = token_end
+        #             else:
+        #                 # In a token.  Move the end cursor.
+        #                 token_open = True
+        #                 token_end += 1
+        #
+        #         # Yield the last token
+        #         if token_open:
+        #             tokenised_list.append(self.yield_token(text,
+        #                                                    token_start,
+        #                                                    token_end))
+        #
+        #         return tokenised_list
+        #
+        # class OCESuffixes(Tokenizer):
+        #     """
+        #     Custom tokeniser:
+        #     1) Runs against OCETokeniser to get tokenised input string.
+        #     2) For each token in the input, returns the suffix array for that token
+        #        if the token has length > 1
+        #
+        #     UNLESS:
+        #     1) If search_mode is True, returns only the output of OCETokeniser (
+        #        so that we don't unnecessarily process search queries)
+        #     """
+        #
+        #     def __init__(self, main_tokeniser):
+        #         self.main_tokeniser = main_tokeniser
+        #         self.search_mode = False
+        #
+        #     def tokenize(self, text):
+        #         """
+        #         Expected to return an iterator over the tokens in `text`.
+        #         """
+        #         text = text.lower()
+        #         list_suffixes = self.suffixes_as_list(text, self.search_mode)
+        #         return iter(list_suffixes)
+        #
+        #     @functools.lru_cache(maxsize=128)
+        #     def suffixes_as_list(self, text, search_mode):
+        #         """
+        #         Memoised version of the suffixer; returns a list instead of an
+        #         iterator.  This cache should not need to be cleared; any
+        #         modifications to the tokeniser will only take effect on restart
+        #         """
+        #         logger.debug(
+        #             "Running OCESuffixer: {}, search_mode: {}".format(text,
+        #                                                               search_mode)
+        #         )
+        #
+        #         # Perform any pre-processing that might be appropriate
+        #         text = self._preprocess_text(text)
+        #
+        #         # The start and end values given by OCETokeniser are in bytes,
+        #         # but we prefer to work with characters; we'll convert them in the
+        #         # loop.
+        #         b_text = text.encode('utf-8')
+        #
+        #         main_tokenised = self.main_tokeniser.tokenise_as_list(text)
+        #         if search_mode:
+        #             return main_tokenised
+        #
+        #         tokenised_list = []
+        #         for token, b_start, b_end in main_tokenised:
+        #             if len(token) == 1:
+        #                 # One character token.  No need to extract suffixes.
+        #                 continue
+        #
+        #             # Byte position -> Character position
+        #             c_before = len(b_text[:b_start].decode('utf-8'))
+        #
+        #             # Skip the first suffix (i.e., the whole token)
+        #             c_start = c_before + 1
+        #             c_end = c_before + len(token)
+        #             for suffix_start in range(c_start, c_end):
+        #                 tokenised_list.append(self.yield_token(text,
+        #                                                        suffix_start,
+        #                                                        c_end))
+        #
+        #         return tokenised_list
+        #
+        #     def _preprocess_text(self, text):
+        #         """
+        #         Do stuff to the record before finding its suffixes.
+        #         """
+        #         # Try to remove the UUID part of URLs from Twitter's URL shortener.
+        #         # (They gum up the suffix database with a whole bunch of
+        #         # single-record entries)
+        #         # http://t.co/<UUID>
+        #         text = re.sub(r'http://t[.]co/[a-zA-Z0-9]+', 'http://t.co/', text)
+        #
+        #         return text
