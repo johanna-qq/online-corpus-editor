@@ -11,6 +11,3 @@
 
 # Saved state (e.g., trained classifiers)
 *.pickle
-
-# Misc.
-*.pem

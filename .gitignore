@@ -1,0 +1,6 @@
+# Hidden files
+.*
+
+# Exclusions
+!.gitignore
+
