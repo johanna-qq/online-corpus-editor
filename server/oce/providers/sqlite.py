@@ -379,7 +379,8 @@ class SQLiteProvider(DataProvider):
             # The FTS engine doesn't care about case, except where the word is
             # one of the query syntax keywords, which should always be in
             # uppercase
-            if word != "OR" and word != "AND" and word != "NOT":
+            query_operators = {"OR", "AND", "NOT", "NEAR"}
+            if True not in {word.startswith(x) for x in query_operators}:
                 word = word.lower()
 
             # ===================
@@ -679,7 +680,7 @@ class SQLiteProvider(DataProvider):
         pass
         # non_ascii_dump()
         # chinese_char_dump()
-        jp_char_dump()
+        # jp_char_dump()
 
     def _execute_literal_statements(self, statements):
         """
