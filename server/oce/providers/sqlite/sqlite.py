@@ -36,8 +36,8 @@ RecordsSuffixes = SQLAlchemyORM.RecordsSuffixes
 RecordCount = SQLAlchemyORM.RecordCount
 RecordTags = SQLAlchemyORM.RecordTags
 
-from oce.providers.sqlite.tokeniser_bindings import make_tokenizer_module
-from oce.providers.sqlite.tokeniser_bindings import register_tokenizer
+from oce.providers.sqlite.bindings import make_tokenizer_module
+from oce.providers.sqlite.bindings import register_tokenizer
 
 from oce.providers.sqlite.tokenisers import OCETokeniser, OCESuffixes
 
@@ -191,6 +191,14 @@ class SQLiteProvider(DataProvider):
             for row in self.session.query(Records) \
                     .filter(Records.rowid == row_id):
 
+                if not hasattr(row, field):
+                    logger.warning(
+                        "Invalid field name given by client: '{}'".format(
+                            field
+                        )
+                    )
+                    return 'invalid_field'
+
                 # ====================
                 # Field-specific hooks
                 # ====================
@@ -224,6 +232,23 @@ class SQLiteProvider(DataProvider):
             # Uh oh.
             logger.error(e)
             return 'error'
+
+    def execute_retag(self, old_tag, new_tag):
+        """
+        Replaces the old tag with the new one on all applicable records.
+        """
+        if re.search(r',', "{}{}".format(old_tag, new_tag)):
+            logger.error("Asked to create a tag that contains a comma.  "
+                         "Aborting.")
+            return 'error'
+        search = self.fetch_search_results("tag:{}".format(old_tag))
+        records = [(x['rowid'], x['tag']) for x in search['results']]
+        for rowid, tag in records:
+            new_tags = tag.split(",")
+            new_tags[new_tags.index(old_tag)] = new_tag
+            new_tags = ','.join(new_tags)
+            self.update_record(rowid, 'tag', new_tags)
+        return 'success'
 
     # Literal SQL
     def execute_orm_filter(self, where_conditions, table="Records"):

@@ -24,7 +24,7 @@ import oce.logger
 logger = oce.logger.getLogger(__name__)
 
 from oce.interfaces.template import ServerInterface, ClientInterface
-from oce.interfaces.telnet_parser import TelnetParser, TelnetExit
+from oce.interfaces.telnet.parser import TelnetParser, TelnetExit
 
 
 class TelnetServer(ServerInterface):

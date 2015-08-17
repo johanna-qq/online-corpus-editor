@@ -521,3 +521,7 @@ class Act:  # Hurr hurr
         record = self.provider.fetch_record(rowid)
         features = self.langid.extract_features(record['content'])
         return features
+
+    def exec_retag(self, request):
+        return self.provider.execute_retag(request['old_tag'], request[
+            'new_tag'])

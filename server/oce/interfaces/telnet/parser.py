@@ -50,6 +50,8 @@ db_branch_table = {
     # Data manipulation
     'query': 'command_query',
     'search': 'command_search',
+    'retag': 'command_retag',
+    'update': 'command_update',
 
     # Database structure
     'drop': 'command_drop',
@@ -198,6 +200,9 @@ class TelnetParser:
         """
         if msg.startswith(b'\xff\xf4\xff\xfd\x06'):
             # Client sent a ^C; we should drop them.
+            raise TelnetExit
+        elif msg.startswith(b'\x04'):
+            # ^D; also exit
             raise TelnetExit
         else:
             yield from self.send_to_client("Invalid command.")
@@ -477,9 +482,68 @@ class TelnetParser:
         yield from self.send_to_server(request)
 
     @asyncio.coroutine
+    def command_retag(self, *args):
+        """
+        Renames tags within the database.
+        Does the basic processing parser-side, then fires update requests at
+        the server.
+        """
+        syntax_help = ("Syntax is:\r\n\r\n"
+                       "db retag <old_tag> <new_tag>")
+        if len(args) < 2 or len(args) > 2:
+            yield from self.send_to_client(syntax_help)
+            return
+
+        request = {
+            'command': 'retag',
+            'old_tag': args[0],
+            'new_tag': args[1]
+        }
+        yield from self.send_to_server(request)
+
+    @asyncio.coroutine
+    def command_update(self, *args):
+        """
+        Changes some record within the database.
+        """
+        syntax_help = ("Syntax is:\r\n\r\n"
+                       "db update <ID> <field> \"<value>\"")
+        if len(args) < 3:
+            yield from self.send_to_client(syntax_help)
+            return
+
+        try:
+            record_id = int(args[0])
+        except ValueError:
+            yield from self.send_to_client(
+                "'{arg}' is not a valid record ID.\r\n\r\n"
+                "{help}".format(arg=args[0], help=syntax_help)
+            )
+            return
+
+        field_name = args[1]
+        # The DB stores literal newlines
+        new_value = ' '.join(args[2:]).replace('\\n', '\n')
+        if not new_value.startswith("\"") and not new_value.endswith("\""):
+            yield from self.send_to_client(
+                "The new value must be enclosed in double inverted "
+                "commas.\r\n\r\n"
+                "{help}".format(help=syntax_help)
+            )
+            return
+        request = {
+            'command': 'update',
+            'rowid': record_id,
+            'field': field_name,
+            'value': new_value.strip("\"")
+        }
+        yield from self.send_to_server(request)
+
+    @asyncio.coroutine
     def command_drop(self, *args):
         """
         See what the client wants to drop, then do it.
+        Choices listed in the provider sources.
         """
         if len(args) == 0:
             yield from self.send_to_client("You need to specify a target to "
@@ -568,7 +632,7 @@ class TelnetParser:
                                           name_width=(name_width + 4),
                                           val_width=(val_width + 4))
 
-        output += "\r\nUse 'db config <option_name> <new_value>' to change " \
+        output += "\r\nUse 'db config <name> <value>' to change " \
                   "any of the configurable options."
         return output
 

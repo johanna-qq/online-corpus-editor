@@ -13,7 +13,7 @@ import oce.logger
 
 logger = oce.logger.getLogger(__name__)
 
-from oce.providers.sqlite.tokeniser_bindings import Tokenizer
+from oce.providers.sqlite.bindings import Tokenizer
 
 
 class OCETokeniser(Tokenizer):
