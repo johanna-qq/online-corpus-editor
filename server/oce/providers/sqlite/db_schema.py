@@ -28,7 +28,7 @@ CREATE VIRTUAL TABLE {main_table}_fts USING fts4(
 """.format(main_table=main_table)]
 
 db_schema["drop_fts"] = ["""
-DROP TABLE IF EXISTS {main_table}_fts
+DROP TABLE IF EXISTS {main_table}_fts;
 """.format(main_table=main_table)]
 
 db_schema["create_suffixes"] = ["""
@@ -46,7 +46,17 @@ CREATE VIRTUAL TABLE {main_table}_suffixes USING fts4(
 """.format(main_table=main_table)]
 
 db_schema["drop_suffixes"] = ["""
-DROP TABLE IF EXISTS {main_table}_suffixes
+DROP TABLE IF EXISTS {main_table}_suffixes;
+""".format(main_table=main_table)]
+
+db_schema["create_count"] = ["""
+CREATE TABLE {main_table}_count(
+    count     INTEGER PRIMARY KEY
+);
+""".format(main_table=main_table)]
+
+db_schema["drop_count"] = ["""
+DROP TABLE IF EXISTS {main_table}_count;
 """.format(main_table=main_table)]
 
 db_schema["create_triggers"] = [
@@ -96,6 +106,22 @@ db_schema["create_triggers"] = [
         DELETE FROM {main_table}_fts WHERE docid=old.rowid;
         DELETE FROM {main_table}_suffixes WHERE docid=old.rowid;
     END;
+    """.format(main_table=main_table),
+
+    """
+    CREATE TRIGGER record_add AFTER INSERT ON {main_table}
+    BEGIN
+        UPDATE {main_table}_count SET
+            count = count + 1;
+    END;
+    """.format(main_table=main_table),
+
+    """
+    CREATE TRIGGER record_del AFTER DELETE ON {main_table}
+    BEGIN
+        UPDATE {main_table}_count SET
+            count = count - 1;
+    END;
     """.format(main_table=main_table)
 ]
 
@@ -111,5 +137,11 @@ db_schema["drop_triggers"] = [
     """,
     """
     DROP TRIGGER IF EXISTS fts_before_delete;
+    """,
+    """
+    DROP TRIGGER IF EXISTS record_add;
+    """,
+    """
+    DROP TRIGGER IF EXISTS record_del;
     """
 ]

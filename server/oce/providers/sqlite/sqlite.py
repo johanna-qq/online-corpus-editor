@@ -156,7 +156,8 @@ class SQLiteProvider(DataProvider):
         # Pre-process the query.
         # We will return the query to the client, including canonical forms of
         # special commands.
-        return_query, fts_query, suffixes_query = self._process_query(query)
+        return_query, fts_query, suffixes_query, suffixes_full_terms = \
+            self._process_query(query)
 
         logger.info(
             "Searching -- FTS:'{}', Suffixes:'{}'.".format(fts_query,
@@ -167,9 +168,11 @@ class SQLiteProvider(DataProvider):
             # Get the results for the query, hitting the memoisation caches
             # if we can.
             count = self._cached_search_results_count(fts_query,
-                                                      suffixes_query)
+                                                      suffixes_query,
+                                                      suffixes_full_terms)
             results = self._cached_search_results(fts_query,
                                                   suffixes_query,
+                                                  suffixes_full_terms,
                                                   offset,
                                                   limit)
             elapsed = "{:.3f}".format(timeit.default_timer() - start_time)
@@ -365,11 +368,13 @@ class SQLiteProvider(DataProvider):
         return_query = ''
         fts_query = ''
         suffixes_query = ''
+        suffixes_full_terms = ''
 
         # If all the search terms are negative, we'll force a full table scan
         # (SQLite FTS does not support searching for only negative terms)
         suffixes_found_positive = False
         fts_found_positive = False
+        suffixes_full_found_positive = False
         prev_was_not = False
 
         for word in query_words:
@@ -390,6 +395,10 @@ class SQLiteProvider(DataProvider):
                 continue
 
             # Intercept terms that should be queried against the suffixes table.
+            # We also run the full term against the FTS table; if not,
+            # queries like "*copula" will not match the word 'copula'
+            # (because the asterisk _needs_ to match something for the
+            # suffixes table.)
             suffix_re = r'^([a-zA-Z0-9]+[:])?(-)?([*][a-zA-Z0-9]+[*]?)$'
             suffixes = re.findall(suffix_re, word)
             if len(suffixes) > 0:
@@ -404,13 +413,18 @@ class SQLiteProvider(DataProvider):
                     if self.enhanced_query_syntax:
                         return_query += "NOT {}{} ".format(field, term)
                         suffixes_query += "NOT {}{} ".format(field, term[1:])
+                        suffixes_full_terms += "NOT {}{}".format(field,
+                                                                 term[1:])
                     else:
                         return_query += "{}-{} ".format(field, term)
                         suffixes_query += "{}-{} ".format(field, term[1:])
+                        suffixes_full_terms += "{}-{}".format(field, term[1:])
                 else:
                     return_query += "{}{} ".format(field, term)
                     suffixes_query += "{}{} ".format(field, term[1:])
                     suffixes_found_positive = True
+                    suffixes_full_terms += "{}{} ".format(field, term[1:])
+                    suffixes_full_found_positive = True
 
                 prev_was_not = False
                 continue
@@ -475,14 +489,21 @@ class SQLiteProvider(DataProvider):
                 fts_query = "fullscan:1 {}".format(fts_query)
             if suffixes_query.startswith("NOT "):
                 suffixes_query = "fullscan:1 {}".format(suffixes_query)
+            if suffixes_full_terms.startswith("NOT "):
+                suffixes_full_terms = "fullscan:1 {}".format(
+                    suffixes_full_terms
+                )
         else:
             if not fts_found_positive:
                 fts_query += 'fullscan:1'
             if not suffixes_found_positive:
                 suffixes_query += 'fullscan:1'
+            if not suffixes_full_found_positive:
+                suffixes_full_terms += 'fullscan:1'
         # ***************************************************************
 
-        return return_query.strip(), fts_query.strip(), suffixes_query.strip()
+        return (return_query.strip(), fts_query.strip(),
+                suffixes_query.strip(), suffixes_full_terms.strip())
 
     def _update_tags(self, new_tags, old_tags):
         """
@@ -540,143 +561,7 @@ class SQLiteProvider(DataProvider):
         """
         Runs arbitrary debug commands on the open DB
         """
-        import os
-
-        # Records with non-ASCII characters.
-        def non_ascii_dump():
-            logger.debug("Beginning non-ASCII, non-emoji Record Dump")
-
-            filename = 'data/non-ascii-dump.txt'
-            if os.path.exists(filename):
-                logger.debug("'{}' exists -- Will not overwrite. "
-                             "Stopping.".format(filename))
-                return
-            fp = open(filename, 'w')
-
-            last_rowid = self.fetch_total()
-            for rowid in range(1, last_rowid + 1):
-                if rowid % 100 == 0:
-                    logger.debug("Row: {}".format(rowid))
-
-                record = self.fetch_record(rowid)
-                for char in record['content']:
-                    # Rough emoji and punctuation detection
-                    latin = ord(char) <= ord('\u036F')
-                    emo1 = ord('\U0001F300') <= ord(char) <= ord('\U0001F6FF')
-                    punc = ord('\u2000') <= ord(char) <= ord('\u2600')
-                    emo2 = ord('\u2600') <= ord(char) <= ord('\u27BF')
-                    private = ord('\uE000') <= ord(char) <= ord('\uF8FF')
-
-                    if not latin and not emo1 and not emo2 and not punc and \
-                            not private:
-                        logger.debug(
-                            "Found non-ASCII, non-emoji char in record {}".format(
-                                record['rowid'])
-                        )
-                        fp.write(
-                            "{:^10}{}\n".format(
-                                record['rowid'],
-                                record['content'].replace('\n', '\\n')
-                            )
-                        )
-                        fp.flush()
-                        break
-            fp.close()
-            logger.debug("Dump complete.")
-
-        # Dumps records with chinese chars, as detected by the langid system
-        def chinese_char_dump():
-            from oce.langid.features import has_zh_chars
-
-            logger.debug("Beginning Chinese Chars Record Dump")
-
-            filename = 'data/chinese-dump.txt'
-            if os.path.exists(filename):
-                logger.debug("'{}' exists -- Will not overwrite. "
-                             "Stopping.".format(filename))
-                return
-            fp = open(filename, 'w')
-
-            last_rowid = self.fetch_total()
-            for rowid in range(1, last_rowid + 1):
-                if rowid % 100 == 0:
-                    logger.debug("Row: {}".format(rowid))
-
-                record = self.fetch_record(rowid)
-                if has_zh_chars(record['content']):
-                    logger.debug(
-                        "Found Chinese char in record {}".format(
-                            record['rowid'])
-                    )
-                    fp.write(
-                        "{:^10}{}\n".format(
-                            record['rowid'],
-                            record['content'].replace('\n', '\\n')
-                        )
-                    )
-                    fp.flush()
-            fp.close()
-            logger.debug("Dump complete.")
-
-        # Dumps records with Japanese chars
-        def jp_char_dump():
-
-            logger.debug("Beginning Japanese chars record dump")
-
-            filename = 'data/jp-dump.txt'
-            if os.path.exists(filename):
-                logger.debug("'{}' exists -- Will not overwrite. "
-                             "Stopping.".format(filename))
-                return
-            fp = open(filename, 'w')
-
-            # o.O
-            query = "ぁ OR あ OR ぃ OR い OR ぅ OR う OR ぇ OR え OR ぉ OR お OR " \
-                    "か OR が OR き OR ぎ OR く OR ぐ OR け OR げ OR こ OR ご OR " \
-                    "さ OR ざ OR し OR じ OR す OR ず OR せ OR ぜ OR そ OR ぞ OR " \
-                    "た OR だ OR ち OR ぢ OR っ OR つ OR づ OR て OR で OR と OR " \
-                    "ど OR な OR に OR ぬ OR ね OR の OR は OR ば OR ぱ OR ひ OR " \
-                    "び OR ぴ OR ふ OR ぶ OR ぷ OR へ OR べ OR ぺ OR ほ OR ぼ OR " \
-                    "ぽ OR ま OR み OR む OR め OR も OR ゃ OR や OR ゅ OR ゆ OR " \
-                    "ょ OR よ OR ら OR り OR る OR れ OR ろ OR ゎ OR わ OR ゐ OR " \
-                    "ゑ OR を OR ん OR ゔ OR ゕ OR ゖ OR ァ OR ア OR ィ OR イ OR " \
-                    "ゥ OR ウ OR ェ OR エ OR ォ OR オ OR カ OR ガ OR キ OR ギ OR " \
-                    "ク OR グ OR ケ OR ゲ OR コ OR ゴ OR サ OR ザ OR シ OR ジ OR " \
-                    "ス OR ズ OR セ OR ゼ OR ソ OR ゾ OR タ OR ダ OR チ OR ヂ OR " \
-                    "ッ OR ツ OR ヅ OR テ OR デ OR ト OR ド OR ナ OR ニ OR ヌ OR " \
-                    "ネ OR ノ OR ハ OR バ OR パ OR ヒ OR ビ OR ピ OR フ OR ブ OR " \
-                    "プ OR ヘ OR ベ OR ペ OR ホ OR ボ OR ポ OR マ OR ミ OR ム OR " \
-                    "メ OR モ OR ャ OR ヤ OR ュ OR ユ OR ョ OR ヨ OR ラ OR リ OR " \
-                    "ル OR レ OR ロ OR ヮ OR ワ OR ヰ OR ヱ OR ヲ OR ン OR ヴ OR " \
-                    "ヵ OR ヶ OR ヷ OR ヸ OR ヹ OR ヺ OR ｦ OR ｧ OR ｨ OR ｩ OR " \
-                    "ｪ OR ｫ OR ｬ OR ｭ OR ｮ OR ｯ OR ｰ OR ｱ OR ｲ OR ｳ OR ｴ OR " \
-                    "ｵ OR ｶ OR ｷ OR ｸ OR ｹ OR ｺ OR ｻ OR ｼ OR ｽ OR ｾ OR ｿ OR " \
-                    "ﾀ OR ﾁ OR ﾂ OR ﾃ OR ﾄ OR ﾅ OR ﾆ OR ﾇ OR ﾈ OR ﾉ OR ﾊ OR " \
-                    "ﾋ OR ﾌ OR ﾍ OR ﾎ OR ﾏ OR ﾐ OR ﾑ OR ﾒ OR ﾓ OR ﾔ OR ﾕ OR " \
-                    "ﾖ OR ﾗ OR ﾘ OR ﾙ OR ﾚ OR ﾛ OR ﾜ OR ﾝ OR ㋐ OR ㋑ OR ㋒ OR " \
-                    "㋓ OR ㋔ OR ㋕ OR ㋖ OR ㋗ OR ㋘ OR ㋙ OR ㋚ OR ㋛ OR ㋜ OR " \
-                    "㋝ OR ㋞ OR ㋟ OR ㋠ OR ㋡ OR ㋢ OR ㋣ OR ㋤ OR ㋥ OR ㋦ OR " \
-                    "㋧ OR ㋨ OR ㋩ OR ㋪ OR ㋫ OR ㋬ OR ㋭ OR ㋮ OR ㋯ OR ㋰ OR ㋱ OR " \
-                    "㋲ OR ㋳ OR ㋴ OR ㋵ OR ㋶ OR ㋷ OR ㋸ OR ㋹ OR ㋺ OR ㋻ OR ㋼ OR " \
-                    "㋽ OR ㋾ OR ㇰ OR ㇱ OR ㇲ OR ㇳ OR ㇴ OR ㇵ OR ㇶ OR ㇷ OR ㇸ OR " \
-                    "ㇹ OR ㇺ OR ㇻ OR ㇼ OR ㇽ OR ㇾ OR ㇿ"
-            records = self.fetch_search_results(query)
-
-            for record in records['results']:
-                fp.write(
-                    "{:^10}{}\n".format(
-                        record['rowid'],
-                        record['content'].replace('\n', '\\n')
-                    )
-                )
-                fp.flush()
-            fp.close()
-            logger.debug("Dump complete.")
-
         pass
-        # non_ascii_dump()
-        # chinese_char_dump()
-        # jp_char_dump()
 
     def _execute_literal_statements(self, statements):
         """
@@ -701,7 +586,8 @@ class SQLiteProvider(DataProvider):
             raise e
 
     @functools.lru_cache(maxsize=128)
-    def _cached_search_results_count(self, fts_query, suffixes_query):
+    def _cached_search_results_count(self, fts_query, suffixes_query,
+                                     suffixes_full_terms):
         """
         Memoise the relatively expensive count() function on search results
         """
@@ -716,7 +602,9 @@ class SQLiteProvider(DataProvider):
 
         if fts_query != '':
             fts = self.session.query(RecordsFTS.docid)
-            fts_filter = RecordsFTS.__tablename__ + " MATCH :fts"
+            fts_filter = "{} MATCH :fts".format(
+                RecordsFTS.__tablename__
+            )
             fts = fts.filter(
                 sqlalchemy.sql.expression.text(fts_filter)
             ).params(
@@ -724,19 +612,44 @@ class SQLiteProvider(DataProvider):
             ).order_by(RecordsFTS.docid)
 
         if suffixes_query != '':
+            if suffixes_full_terms == '':
+                # This shouldn't be happening; the full suffix terms should
+                # always be passed along with a suffix query.
+                raise oce.exceptions.CustomError("Suffix query requested, "
+                                                 "but full suffix term not "
+                                                 "given.")
+
             suffixes = self.session.query(RecordsSuffixes.docid)
-            suffixes_filter = RecordsSuffixes.__tablename__ + " MATCH :suffixes"
+            suffixes_filter = "{} MATCH :suffixes".format(
+                RecordsSuffixes.__tablename__
+            )
             suffixes = suffixes.filter(
                 sqlalchemy.sql.expression.text(suffixes_filter)
             ).params(
                 suffixes=suffixes_query
-            ).order_by(RecordsSuffixes.docid)
+            )
+
+            suffixes_full = self.session.query(RecordsFTS.docid)
+            suffixes_full_filter = "{} MATCH :suffixes_full".format(
+                RecordsFTS.__tablename__
+            )
+            suffixes_full = suffixes_full.filter(
+                sqlalchemy.sql.expression.text(suffixes_full_filter)
+            ).params(
+                suffixes_full=suffixes_full_terms
+            )
+
+            suffixes = suffixes.union(
+                suffixes_full
+            ).order_by(
+                sqlalchemy.sql.expression.text("1")
+            )
 
         if fts is not None and suffixes is None:
             search = fts
         elif fts is not None and suffixes is not None:
             suffixes = suffixes.subquery()
-            search = fts.join(suffixes, RecordsFTS.docid == suffixes.c.docid)
+            search = fts.join(suffixes, RecordsFTS.docid == suffixes)
         elif fts is None and suffixes is not None:
             search = suffixes
         elif fts is None and suffixes is None:
@@ -751,7 +664,8 @@ class SQLiteProvider(DataProvider):
         return count
 
     @functools.lru_cache(maxsize=128)
-    def _cached_search_results(self, fts_query, suffixes_query, offset, limit):
+    def _cached_search_results(self, fts_query, suffixes_query,
+                               suffixes_full_terms, offset, limit):
         """
         Memoised call to get the results of a search query; useful when the
         user is thumbing through the results pages without making modifications.
@@ -775,7 +689,9 @@ class SQLiteProvider(DataProvider):
 
         if fts_query != '':
             fts = self.session.query(RecordsFTS.docid)
-            fts_filter = RecordsFTS.__tablename__ + " MATCH :fts"
+            fts_filter = "{} MATCH :fts".format(
+                RecordsFTS.__tablename__
+            )
             fts = fts.filter(
                 sqlalchemy.sql.expression.text(fts_filter)
             ).params(
@@ -783,19 +699,44 @@ class SQLiteProvider(DataProvider):
             ).order_by(RecordsFTS.docid)
 
         if suffixes_query != '':
+            if suffixes_full_terms == '':
+                # This shouldn't be happening; the full suffix terms should
+                # always be passed along with a suffix query.
+                raise oce.exceptions.CustomError("Suffix query requested, "
+                                                 "but full suffix term not "
+                                                 "given.")
+
             suffixes = self.session.query(RecordsSuffixes.docid)
-            suffixes_filter = RecordsSuffixes.__tablename__ + " MATCH :suffixes"
+            suffixes_filter = "{} MATCH :suffixes".format(
+                RecordsSuffixes.__tablename__
+            )
             suffixes = suffixes.filter(
                 sqlalchemy.sql.expression.text(suffixes_filter)
             ).params(
                 suffixes=suffixes_query
-            ).order_by(RecordsSuffixes.docid)
+            )
+
+            suffixes_full = self.session.query(RecordsFTS.docid)
+            suffixes_full_filter = "{} MATCH :suffixes_full".format(
+                RecordsFTS.__tablename__
+            )
+            suffixes_full = suffixes_full.filter(
+                sqlalchemy.sql.expression.text(suffixes_full_filter)
+            ).params(
+                suffixes_full=suffixes_full_terms
+            )
+
+            suffixes = suffixes.union(
+                suffixes_full
+            ).order_by(
+                sqlalchemy.sql.expression.text("1")
+            )
 
         if fts is not None and suffixes is None:
             search = fts
         elif fts is not None and suffixes is not None:
             suffixes = suffixes.subquery()
-            search = fts.join(suffixes, RecordsFTS.docid == suffixes.c.docid)
+            search = fts.join(suffixes, RecordsFTS.docid == suffixes)
         elif fts is None and suffixes is not None:
             search = suffixes
         elif fts is None and suffixes is None:
@@ -811,13 +752,19 @@ class SQLiteProvider(DataProvider):
             search = search.limit(limit)
 
         search = search.subquery()
+        # Some hacky bits here to perform the join properly on the columns
+        # (The exact column name varies based on whether or not a suffix
+        # search was performed, and SQLAlchemy doesn't seem to support
+        # joining by column order)
+        column_id = list(search.c.keys())[0]
 
         # And now the main query
         main = self.session.query(Records) \
-            .join(search, Records.rowid == search.c.docid) \
+            .join(search, Records.rowid == search.c[column_id]) \
             .order_by(Records.rowid)
 
         results = [row.dictionary for row in main]
+        print(len(results))
         self.suffix_tokeniser.search_mode = prev_mode
         return results
 
@@ -839,160 +786,3 @@ class SQLiteProvider(DataProvider):
                            make_tokenizer_module(self.main_tokeniser))
         register_tokenizer(db_connection, 'oce_suffixes',
                            make_tokenizer_module(self.suffix_tokeniser))
-        #
-        # class OCETokeniser(Tokenizer):
-        #     """
-        #     Custom tokeniser:
-        #     1) Folds text to lower case
-        #     2) Treats all non-alphanumeric ASCII chars as delimiters
-        #     3) Each character outside the ASCII range is treated as one single
-        #        token
-        #     """
-        #
-        #     def tokenize(self, text):
-        #         """
-        #         Expected to return an iterator over the tokens in `text`.
-        #         """
-        #         text = text.lower()
-        #         list_tokens = self.tokenise_as_list(text)
-        #         return iter(list_tokens)
-        #
-        #     @functools.lru_cache(maxsize=128)
-        #     def tokenise_as_list(self, text):
-        #         """
-        #         Memoised version of the tokeniser; returns a list instead of an
-        #         iterator.  This cache should not need to be cleared; any
-        #         modifications to the tokeniser will only take effect on restart
-        #         """
-        #         logger.debug('Running OCETokeniser: {}'.format(text))
-        #
-        #         tokenised_list = []
-        #
-        #         token_open = False
-        #         token_start = 0
-        #         token_end = 0
-        #         for char in text:
-        #             if re.match(r'[^a-zA-Z0-9]', char):
-        #                 # The character is non-alphanumeric.  If it is within the
-        #                 # ASCII range, close the current token and yield it.  If
-        #                 # not, yield it as a new token.
-        #                 if ord(char) <= 127:
-        #                     if token_open:
-        #                         # Was in token.  Yield token and advance cursors
-        #                         # to next character.
-        #                         token_open = False
-        #                         tokenised_list.append(self.yield_token(text,
-        #                                                                token_start,
-        #                                                                token_end))
-        #                         token_end += 1
-        #                         token_start = token_end
-        #                     else:
-        #                         # Was not in token.  Advance cursors in tandem.
-        #                         token_end += 1
-        #                         token_start += 1
-        #                 else:
-        #                     if token_open:
-        #                         # Was in token.  Yield and advance start cursor.
-        #                         token_open = False
-        #                         tokenised_list.append(self.yield_token(text,
-        #                                                                token_start,
-        #                                                                token_end))
-        #                         token_start = token_end
-        #
-        #                     # Yield one more character (the non-ASCII one)
-        #                     token_end += 1
-        #                     tokenised_list.append(self.yield_token(text,
-        #                                                            token_start,
-        #                                                            token_end))
-        #                     token_start = token_end
-        #             else:
-        #                 # In a token.  Move the end cursor.
-        #                 token_open = True
-        #                 token_end += 1
-        #
-        #         # Yield the last token
-        #         if token_open:
-        #             tokenised_list.append(self.yield_token(text,
-        #                                                    token_start,
-        #                                                    token_end))
-        #
-        #         return tokenised_list
-        #
-        # class OCESuffixes(Tokenizer):
-        #     """
-        #     Custom tokeniser:
-        #     1) Runs against OCETokeniser to get tokenised input string.
-        #     2) For each token in the input, returns the suffix array for that token
-        #        if the token has length > 1
-        #
-        #     UNLESS:
-        #     1) If search_mode is True, returns only the output of OCETokeniser (
-        #        so that we don't unnecessarily process search queries)
-        #     """
-        #
-        #     def __init__(self, main_tokeniser):
-        #         self.main_tokeniser = main_tokeniser
-        #         self.search_mode = False
-        #
-        #     def tokenize(self, text):
-        #         """
-        #         Expected to return an iterator over the tokens in `text`.
-        #         """
-        #         text = text.lower()
-        #         list_suffixes = self.suffixes_as_list(text, self.search_mode)
-        #         return iter(list_suffixes)
-        #
-        #     @functools.lru_cache(maxsize=128)
-        #     def suffixes_as_list(self, text, search_mode):
-        #         """
-        #         Memoised version of the suffixer; returns a list instead of an
-        #         iterator.  This cache should not need to be cleared; any
-        #         modifications to the tokeniser will only take effect on restart
-        #         """
-        #         logger.debug(
-        #             "Running OCESuffixer: {}, search_mode: {}".format(text,
-        #                                                               search_mode)
-        #         )
-        #
-        #         # Perform any pre-processing that might be appropriate
-        #         text = self._preprocess_text(text)
-        #
-        #         # The start and end values given by OCETokeniser are in bytes,
-        #         # but we prefer to work with characters; we'll convert them in the
-        #         # loop.
-        #         b_text = text.encode('utf-8')
-        #
-        #         main_tokenised = self.main_tokeniser.tokenise_as_list(text)
-        #         if search_mode:
-        #             return main_tokenised
-        #
-        #         tokenised_list = []
-        #         for token, b_start, b_end in main_tokenised:
-        #             if len(token) == 1:
-        #                 # One character token.  No need to extract suffixes.
-        #                 continue
-        #
-        #             # Byte position -> Character position
-        #             c_before = len(b_text[:b_start].decode('utf-8'))
-        #
-        #             # Skip the first suffix (i.e., the whole token)
-        #             c_start = c_before + 1
-        #             c_end = c_before + len(token)
-        #             for suffix_start in range(c_start, c_end):
-        #                 tokenised_list.append(self.yield_token(text,
-        #                                                        suffix_start,
-        #                                                        c_end))
-        #
-        #         return tokenised_list
-        #
-        #     def _preprocess_text(self, text):
-        #         """
-        #         Do stuff to the record before finding its suffixes.
-        #         """
-        #         # Try to remove the UUID part of URLs from Twitter's URL shortener.
-        #         # (They gum up the suffix database with a whole bunch of
-        #         # single-record entries)
-        #         # http://t.co/<UUID>
-        #         text = re.sub(r'http://t[.]co/[a-zA-Z0-9]+', 'http://t.co/', text)
-        #
-        #         return text
